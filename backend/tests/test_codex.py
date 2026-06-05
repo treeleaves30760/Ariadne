@@ -131,3 +131,18 @@ async def test_generate_report():
     assert report.overview == "ov"
     assert report.clusters[0].paper_ids == ["s2:a", "s2:b"]
     assert report.must_reads == ["s2:a"]
+
+
+async def test_generate_report_resolves_id_with_title_suffix():
+    """Model sometimes returns 'id — title'; we map it back to the bare id."""
+    papers = [_paper("10/abc", "A"), _paper("10/xyz", "B")]
+    fake = FakeCodex([{
+        "overview": "ov",
+        "clusters": [{"theme": "T", "summary": "s",
+                      "paper_ids": ["10/abc — A", "unknown paper"]}],
+        "must_reads": ["10/xyz — B"],
+        "gaps": [],
+    }])
+    report = await generate_report(fake, SEED, papers, {}, level="final", language="en")
+    assert report.must_reads == ["10/xyz"]              # resolved from "id — title"
+    assert report.clusters[0].paper_ids == ["10/abc"]   # unknown dropped

@@ -66,7 +66,7 @@ class JobManager:
         async def emit(event: dict) -> None:
             p = job.progress
             t = event.get("type")
-            if "level" in event:
+            if isinstance(event.get("level"), int):  # report levels are strings; skip those
                 p.current_level = event["level"]
             if "nodes" in event:
                 p.nodes = event["nodes"]

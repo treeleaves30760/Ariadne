@@ -65,6 +65,29 @@ def build_prompt(
     )
 
 
+def _match_id(value: str, valid: set[str]) -> str | None:
+    """Map a model-returned reference back to a real paper id.
+
+    The model is asked for bare ids but sometimes returns "id — title" or similar;
+    accept an exact match, else a valid id contained in the returned string.
+    """
+    if value in valid:
+        return value
+    candidates = [vid for vid in valid if vid in value]
+    if candidates:
+        return max(candidates, key=len)  # longest match wins (avoids prefix collisions)
+    return None
+
+
+def _resolve_ids(values: list[str], valid: set[str]) -> list[str]:
+    out: list[str] = []
+    for v in values:
+        m = _match_id(v, valid)
+        if m and m not in out:
+            out.append(m)
+    return out
+
+
 async def generate_report(
     codex: CodexClient,
     seed: Paper,
@@ -76,11 +99,12 @@ async def generate_report(
     prompt = build_prompt(seed, papers, summaries, level, language)
     data = await codex.run_structured(prompt, REPORT_SCHEMA)
     data = data or {}
+    valid = {p.id for p in papers}
     clusters = [
         ReportCluster(
             theme=c.get("theme", ""),
             summary=c.get("summary", ""),
-            paper_ids=c.get("paper_ids", []),
+            paper_ids=_resolve_ids(c.get("paper_ids", []), valid),
         )
         for c in data.get("clusters", [])
     ]
@@ -88,7 +112,7 @@ async def generate_report(
         level=level,
         overview=data.get("overview", ""),
         clusters=clusters,
-        must_reads=data.get("must_reads", []),
+        must_reads=_resolve_ids(data.get("must_reads", []), valid),
         gaps=data.get("gaps", []),
         raw=data,
     )
