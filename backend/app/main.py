@@ -8,14 +8,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.services.library import PaperLibrary
 from app.storage.db import close_db, get_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await get_db()  # connect + create schema on startup
-    yield
-    await close_db()
+    db = await get_db()  # connect + create schema on startup
+    settings = get_settings()
+    app.state.library = PaperLibrary.build(db, settings)
+    try:
+        yield
+    finally:
+        await app.state.library.aclose()
+        await close_db()
 
 
 def create_app() -> FastAPI:
