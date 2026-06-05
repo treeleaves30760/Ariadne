@@ -13,6 +13,7 @@ dependencies = [
     "sse-starlette>=2.1",
     "aiosqlite>=0.20",
     "ddgs>=9.0",
+    "pypdf>=5.0",
 ]
 
 [dependency-groups]

@@ -25,6 +25,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 class AskRequest(BaseModel):
     question: str
+    use_tools: bool = True   # let the assistant search the web + read PDFs to verify
 
 
 async def _load_corpus(db: Database, job_id: str):
@@ -91,14 +92,24 @@ async def job_events(
 
 @router.get("/{job_id}/graph")
 async def job_graph(job_id: str, db: Database = Depends(get_database)):
+    from app.services.scoring import importance_score, is_top_venue, max_log_cites
+
     rows = await db.job_papers(job_id)
     edges = await db.job_edges(job_id)
-    nodes = []
+    papers = {}
     for r in rows:
         p = await db.get_paper(r["paper_id"])
+        if p:
+            papers[r["paper_id"]] = p
+    mlc = max_log_cites([p.citation_count for p in papers.values()])
+
+    nodes = []
+    for r in rows:
+        p = papers.get(r["paper_id"])
         if not p:
             continue
         summary = await db.get_summary(job_id, r["paper_id"])
+        top = is_top_venue(p.venue)
         nodes.append({
             "id": p.id,
             "title": p.title,
@@ -106,6 +117,8 @@ async def job_graph(job_id: str, db: Database = Depends(get_database)):
             "authors": [a.name for a in p.authors[:5]],
             "venue": p.venue,
             "citation_count": p.citation_count,
+            "top_venue": top,
+            "importance": importance_score(r["relevance"], p.citation_count, top, mlc),
             "url": p.url,
             "pdf_url": p.pdf_url,
             "external_ids": p.external_ids.model_dump(),
@@ -186,10 +199,13 @@ async def ask(job_id: str, req: AskRequest, db: Database = Depends(get_database)
     seed = papers.get(job.params.seed_id) or next(iter(papers.values()))
 
     settings = get_settings()
-    codex = CodexClient(settings, max_calls=settings.max_codex_calls)
+    rt = await db.get_runtime_config()
+    codex = CodexClient(settings, max_calls=settings.max_codex_calls, runtime=rt)
     try:
         result = await answer_question(
-            codex, req.question, seed, list(papers.values()), summaries, job.params.language
+            codex, req.question, seed, list(papers.values()), summaries,
+            job.params.language, history=await db.list_qa(job_id), use_tools=req.use_tools,
+            web_max=settings.web_search_max_results,
         )
     except CodexBudgetExceeded:
         raise HTTPException(429, "Codex budget exhausted")

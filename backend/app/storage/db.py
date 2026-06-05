@@ -21,6 +21,7 @@ from app.models import (
     Paper,
     QAResult,
     Report,
+    RuntimeConfig,
     Summary,
 )
 
@@ -85,6 +86,11 @@ CREATE TABLE IF NOT EXISTS qa (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_qa_job ON qa(job_id);
+
+CREATE TABLE IF NOT EXISTS settings (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    data        TEXT NOT NULL
+);
 """
 
 
@@ -247,6 +253,19 @@ class Database:
             "SELECT data FROM qa WHERE job_id = ? ORDER BY id", (job_id,)
         )
         return [QAResult.model_validate_json(r["data"]) for r in await cur.fetchall()]
+
+    # --------------------------- runtime config -------------------------- #
+    async def get_runtime_config(self) -> "RuntimeConfig":
+        cur = await self._conn.execute("SELECT data FROM settings WHERE id = 1")
+        row = await cur.fetchone()
+        return RuntimeConfig.model_validate_json(row["data"]) if row else RuntimeConfig()
+
+    async def set_runtime_config(self, cfg: "RuntimeConfig") -> None:
+        await self._conn.execute(
+            "INSERT OR REPLACE INTO settings (id, data) VALUES (1, ?)",
+            (cfg.model_dump_json(),),
+        )
+        await self._conn.commit()
 
     # ----------------------------- job list ------------------------------ #
     async def list_jobs(self, limit: int = 50) -> list[Job]:

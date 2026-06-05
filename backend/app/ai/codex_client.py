@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import Settings
+from app.models import RuntimeConfig
 
 
 class CodexError(RuntimeError):
@@ -57,10 +58,20 @@ def _extract_json(text: str) -> Any:
 
 
 class CodexClient:
-    def __init__(self, settings: Settings, *, max_calls: int | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        max_calls: int | None = None,
+        runtime: RuntimeConfig | None = None,
+    ):
         self.settings = settings
         self.bin = shutil.which(settings.codex_bin) or settings.codex_bin
-        self.model = settings.codex_model
+        rt = runtime or RuntimeConfig()
+        self.model = rt.model or settings.codex_model
+        self.reasoning_effort = rt.reasoning_effort
+        self.api_base = rt.api_base
+        self.api_key = rt.api_key
         self.timeout = settings.codex_timeout_s
         self._sem = asyncio.Semaphore(max(1, settings.codex_concurrency))
         self._calls = 0
@@ -104,7 +115,20 @@ class CodexClient:
         chosen_model = model or self.model
         if chosen_model:
             args += ["-m", chosen_model]
+        if self.reasoning_effort:
+            args += ["-c", f'model_reasoning_effort="{self.reasoning_effort}"']
+        if self.api_base:
+            args += ["-c", f'model_providers.openai.base_url="{self.api_base}"',
+                     "-c", 'model_provider="openai"']
+        if self.api_key:
+            args += ["-c", 'preferred_auth_method="apikey"']
         args.append("-")  # read prompt from stdin
+
+        env = os.environ.copy()
+        if self.api_key:
+            env["OPENAI_API_KEY"] = self.api_key
+        if self.api_base:
+            env["OPENAI_BASE_URL"] = self.api_base
 
         async with self._sem:
             self._calls += 1
@@ -114,7 +138,7 @@ class CodexClient:
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    env=os.environ.copy(),
+                    env=env,
                 )
                 try:
                     stdout, stderr = await asyncio.wait_for(

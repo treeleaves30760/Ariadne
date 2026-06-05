@@ -61,7 +61,8 @@ class JobManager:
         job = await self.db.get_job(job_id)
         if not job:
             return
-        codex = CodexClient(self.settings, max_calls=self.settings.max_codex_calls)
+        rt = await self.db.get_runtime_config()
+        codex = CodexClient(self.settings, max_calls=self.settings.max_codex_calls, runtime=rt)
 
         async def emit(event: dict) -> None:
             p = job.progress

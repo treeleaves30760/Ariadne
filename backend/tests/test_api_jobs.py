@@ -76,6 +76,36 @@ async def test_export_endpoints(populated_db):
         assert "A key paper." in md
 
 
+async def test_settings_roundtrip_and_key_masking(populated_db):
+    with _client(populated_db) as client:
+        # set model + effort + key
+        r = client.put("/settings", json={
+            "model": "gpt-5.5", "reasoning_effort": "high",
+            "api_base": "https://api.example.com/v1", "api_key": "sk-secret-1234",
+        })
+        assert r.status_code == 200
+        s = client.get("/settings").json()
+        assert s["model"] == "gpt-5.5"
+        assert s["reasoning_effort"] == "high"
+        assert s["api_key_set"] is True
+        assert s["api_key_masked"] == "…1234"     # key never returned in full
+        assert "gpt-5.4" in s["available_models"]
+        assert "xhigh" in s["reasoning_efforts"]
+        # rejects unsupported values
+        assert client.put("/settings", json={"model": "gpt-3"}).status_code == 400
+        # blank api_key keeps the existing one
+        client.put("/settings", json={"model": "gpt-5.4", "api_key": ""})
+        assert client.get("/settings").json()["api_key_set"] is True
+
+
+async def test_graph_has_importance(populated_db):
+    with _client(populated_db) as client:
+        data = client.get("/jobs/job1/graph").json()
+        child = next(n for n in data["nodes"] if n["id"] == "10/a")
+        assert "importance" in child and 0.0 <= child["importance"] <= 1.0
+        assert "top_venue" in child
+
+
 async def test_list_jobs(populated_db):
     with _client(populated_db) as client:
         jobs = client.get("/jobs").json()
@@ -85,7 +115,7 @@ async def test_list_jobs(populated_db):
 async def test_ask_endpoint(populated_db, monkeypatch):
     from app.models import QAResult
 
-    async def fake_answer(codex, question, seed, papers, summaries, language="en"):
+    async def fake_answer(codex, question, seed, papers, summaries, language="en", **kw):
         return QAResult(question=question, answer="Grounded answer.",
                         citations=["10/a"], confidence=0.8)
 

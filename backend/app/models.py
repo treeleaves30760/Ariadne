@@ -159,9 +159,20 @@ class Report(BaseModel):
     raw: dict[str, Any] | None = None
 
 
+class RuntimeConfig(BaseModel):
+    """User-tunable model/provider settings applied to every Codex call."""
+
+    model: str | None = None            # e.g. "gpt-5.5", "gpt-5.4"
+    reasoning_effort: str | None = None  # "low" | "medium" | "high" | "xhigh"
+    api_base: str | None = None         # custom OpenAI-compatible endpoint
+    api_key: str | None = None          # user's OpenAI API key (stored locally)
+
+
 class QAResult(BaseModel):
     question: str
     answer: str
     citations: list[str] = Field(default_factory=list)  # paper ids supporting the answer
     confidence: float = 0.0
+    sources: list[WebSource] = Field(default_factory=list)  # web/PDF tools used
+    tools_used: list[str] = Field(default_factory=list)     # e.g. ["web", "pdf"]
     created_at: str = ""
