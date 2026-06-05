@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.jobs.manager import JobManager
 from app.services.library import PaperLibrary
 from app.storage.db import close_db, get_db
 
@@ -17,6 +18,7 @@ async def lifespan(app: FastAPI):
     db = await get_db()  # connect + create schema on startup
     settings = get_settings()
     app.state.library = PaperLibrary.build(db, settings)
+    app.state.jobs = JobManager(db, app.state.library, settings)
     try:
         yield
     finally:
@@ -41,9 +43,11 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": app.version}
 
     # Routers are registered here as milestones land.
+    from app.api.jobs_routes import router as jobs_router
     from app.api.routes import router as api_router
 
     app.include_router(api_router)
+    app.include_router(jobs_router)
 
     return app
 

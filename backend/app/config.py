@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     relevance_threshold: float = 0.25
     relevance_batch_size: int = 20
     prefilter_per_paper: int = 60   # cheap cap on candidates pulled per frontier paper
+    max_candidates_per_level: int = 200  # cap sent to Codex per level (bounds cost)
+    summarize_kept: bool = True     # generate per-paper AI summaries for kept nodes
 
     # --- Global hard ceilings (cost / time guardrails) ---
     max_nodes: int = 600
