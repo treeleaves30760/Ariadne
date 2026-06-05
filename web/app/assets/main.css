@@ -40,6 +40,21 @@ a:hover { text-decoration: underline; }
 .logo .dot { width: 11px; height: 11px; border-radius: 50%;
   background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 0 12px var(--accent); }
 .app-header .tag { color: var(--text-dim); font-size: 13px; }
+.app-header .header-link { margin-left: auto; color: var(--text-dim); font-size: 14px; }
+.app-header .header-link:hover { color: var(--text); }
+
+/* papers table */
+.ptable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.ptable th, .ptable td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.ptable th { color: var(--text-dim); font-weight: 600; cursor: pointer; user-select: none; white-space: nowrap; position: sticky; top: 0; background: var(--bg-2); }
+.ptable th.num, .ptable td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ptable tbody tr { cursor: pointer; }
+.ptable tbody tr:hover { background: var(--bg-3); }
+.ptable .t-title { color: var(--text); }
+.ptable .bar { display: inline-block; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); vertical-align: middle; }
+.ptable .star { color: #f5c451; }
+.tools-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--bg-3); border: 1px solid var(--border); color: var(--cite); }
 
 .container { max-width: 940px; margin: 0 auto; padding: 32px 22px 80px; }
 

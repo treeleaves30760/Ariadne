@@ -46,6 +46,8 @@ export interface GraphNode {
   external_ids: ExternalIds
   level: number
   relevance?: number | null
+  importance?: number | null
+  top_venue?: boolean
   reason?: string
   summary?: string | null
 }
@@ -88,5 +90,17 @@ export interface QAResult {
   answer: string
   citations: string[]
   confidence: number
+  sources?: WebSource[]
+  tools_used?: string[]
   created_at: string
+}
+
+export interface Settings {
+  model: string | null
+  reasoning_effort: string | null
+  api_base: string | null
+  api_key_set: boolean
+  api_key_masked: string | null
+  available_models: string[]
+  reasoning_efforts: string[]
 }

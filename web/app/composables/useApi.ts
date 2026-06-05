@@ -1,4 +1,4 @@
-import type { Candidate, GraphData, Job, QAResult, Report } from '~/types'
+import type { Candidate, GraphData, Job, QAResult, Report, Settings } from '~/types'
 
 export function useApi() {
   const base = useRuntimeConfig().public.apiBase as string
@@ -19,10 +19,15 @@ export function useApi() {
 
     listJobs: () => req<Job[]>('/jobs'),
 
-    ask: (id: string, question: string) =>
-      req<QAResult>(`/jobs/${id}/ask`, { method: 'POST', body: { question } }),
+    ask: (id: string, question: string, useTools = true) =>
+      req<QAResult>(`/jobs/${id}/ask`, { method: 'POST', body: { question, use_tools: useTools } }),
 
     getQa: (id: string) => req<QAResult[]>(`/jobs/${id}/qa`),
+
+    getSettings: () => req<Settings>('/settings'),
+
+    putSettings: (body: Record<string, unknown>) =>
+      req<{ ok: boolean }>('/settings', { method: 'PUT', body }),
 
     getGraph: (id: string) => req<GraphData>(`/jobs/${id}/graph`),
 

@@ -5,6 +5,7 @@
         <span class="dot" /> Paper Connector
       </NuxtLink>
       <span class="tag">citation graphs · AI-filtered · find every key paper</span>
+      <NuxtLink to="/settings" class="header-link">Settings</NuxtLink>
     </header>
     <NuxtPage />
   </div>

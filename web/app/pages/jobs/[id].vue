@@ -11,8 +11,10 @@ const graph = ref<GraphData>({ nodes: [], edges: [] })
 const reports = ref<Record<string, Report>>({})
 const reportLevels = ref<string[]>([])
 const selectedId = ref<string | null>(null)
-const tab = ref<'graph' | 'reports' | 'ask'>('graph')
+const tab = ref<'graph' | 'papers' | 'reports' | 'ask'>('graph')
 const activeReport = ref<string>('')
+const sortKey = ref<'importance' | 'relevance' | 'citation_count' | 'year' | 'level'>('importance')
+const useTools = ref(true)
 const liveNotes = ref<string[]>([])
 const activity = ref<string[]>([])
 let stop: (() => void) | null = null
@@ -40,6 +42,15 @@ const selected = computed<GraphNode | null>(
 const reportLabel = (l: string) => (l === 'web' ? 'Web context' : l === 'final' ? 'Final' : 'Level ' + l)
 const titleOf = (cid: string) => graph.value.nodes.find((n) => n.id === cid)?.title ?? cid
 
+const sortedPapers = computed(() => {
+  const k = sortKey.value
+  return [...graph.value.nodes].sort((a, b) => {
+    const av = (a as any)[k] ?? -1, bv = (b as any)[k] ?? -1
+    return bv - av
+  })
+})
+function setSort(k: typeof sortKey.value) { sortKey.value = k }
+
 async function refreshGraph() {
   try { graph.value = await api.getGraph(id) } catch { /* not ready */ }
 }
@@ -60,7 +71,7 @@ async function ask() {
   if (!question.value.trim() || asking.value) return
   asking.value = true; qaError.value = ''
   try {
-    const res = await api.ask(id, question.value.trim())
+    const res = await api.ask(id, question.value.trim(), useTools.value)
     qaHistory.value.push(res)
     question.value = ''
   } catch (e: any) {
@@ -136,10 +147,56 @@ onBeforeUnmount(() => stop && stop())
 
     <div class="tabs">
       <div class="tab" :class="{ active: tab === 'graph' }" @click="tab = 'graph'">Graph</div>
+      <div class="tab" :class="{ active: tab === 'papers' }" @click="tab = 'papers'">
+        Papers <span v-if="graph.nodes.length" class="muted">({{ graph.nodes.length }})</span>
+      </div>
       <div class="tab" :class="{ active: tab === 'reports' }" @click="tab = 'reports'">
         Reports <span v-if="reportLevels.length" class="muted">({{ reportLevels.length }})</span>
       </div>
       <div class="tab" :class="{ active: tab === 'ask' }" @click="tab = 'ask'">Ask the literature</div>
+    </div>
+
+    <!-- PAPERS TAB -->
+    <div v-show="tab === 'papers'">
+      <div v-if="!graph.nodes.length" class="card muted">No papers yet.</div>
+      <div v-else class="card" style="overflow:auto; max-height: 70vh">
+        <table class="ptable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Title</th>
+              <th class="num" @click="setSort('year')">Year</th>
+              <th>Venue</th>
+              <th class="num" @click="setSort('citation_count')">Cites ⇅</th>
+              <th class="num" @click="setSort('relevance')">Rel ⇅</th>
+              <th class="num" @click="setSort('importance')">Importance ⇅</th>
+              <th class="num" @click="setSort('level')">Lvl</th>
+              <th>Links</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(p, i) in sortedPapers" :key="p.id" @click="gotoPaper(p.id)">
+              <td class="num muted">{{ i + 1 }}</td>
+              <td class="t-title">{{ p.title }}
+                <span v-if="p.top_venue" class="star" title="top venue">★</span>
+              </td>
+              <td class="num">{{ p.year || '—' }}</td>
+              <td>{{ p.venue || '—' }}</td>
+              <td class="num">{{ (p.citation_count || 0).toLocaleString() }}</td>
+              <td class="num">{{ p.relevance != null ? (p.relevance * 100).toFixed(0) + '%' : '—' }}</td>
+              <td class="num">
+                <span class="bar" :style="{ width: ((p.importance || 0) * 60) + 'px' }" />
+                {{ ((p.importance || 0) * 100).toFixed(0) }}
+              </td>
+              <td class="num">{{ p.level }}</td>
+              <td @click.stop>
+                <a v-if="p.pdf_url" :href="p.pdf_url" target="_blank">PDF</a>
+                <a v-if="p.external_ids.doi" :href="`https://doi.org/${p.external_ids.doi}`" target="_blank" style="margin-left:8px">DOI</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- GRAPH TAB -->
@@ -166,6 +223,10 @@ onBeforeUnmount(() => stop && stop())
             <span v-if="selected.citation_count != null" class="pill" style="margin-left:6px">
               {{ selected.citation_count.toLocaleString() }} cites
             </span>
+            <span v-if="selected.importance != null" class="pill" style="margin-left:6px">
+              importance {{ (selected.importance * 100).toFixed(0) }}
+            </span>
+            <span v-if="selected.top_venue" class="pill star" style="margin-left:6px">★ top venue</span>
           </div>
           <div v-if="selected.summary" class="summary">{{ selected.summary }}</div>
           <div v-if="selected.reason" class="reason">Why kept: {{ selected.reason }}</div>
@@ -213,8 +274,9 @@ onBeforeUnmount(() => stop && stop())
     <div v-show="tab === 'ask'">
       <div class="card">
         <p class="muted" style="margin-top:0">
-          Ask a question about this set of papers — the answer is grounded only in the collected
-          corpus, with citations you can click.
+          Chat with the literature — answers are grounded in the collected corpus (with clickable
+          citations) and, when tools are on, verified with web search and by reading open-access
+          PDFs. Follow-up questions keep the conversation context.
         </p>
         <div class="qa-input">
           <input
@@ -226,6 +288,10 @@ onBeforeUnmount(() => stop && stop())
             <span v-if="asking" class="spinner" /> {{ asking ? 'Thinking…' : 'Ask' }}
           </button>
         </div>
+        <div class="tools-row">
+          <label class="lbl-toggle"><input type="checkbox" v-model="useTools" /> use tools (web search + read PDFs)</label>
+          <span class="muted" style="font-size:12px">tools improve accuracy but take longer</span>
+        </div>
         <p v-if="qaError" class="error">{{ qaError }}</p>
 
         <div class="qa-history">
@@ -235,7 +301,19 @@ onBeforeUnmount(() => stop && stop())
             <div class="qa-cites" v-if="qa.citations.length">
               <span v-for="cid in qa.citations" :key="cid" class="chip" @click="gotoPaper(cid)">{{ titleOf(cid) }}</span>
             </div>
-            <div class="conf">confidence {{ (qa.confidence * 100).toFixed(0) }}%</div>
+            <div class="tools-row">
+              <span class="conf">confidence {{ (qa.confidence * 100).toFixed(0) }}%</span>
+              <span v-for="t in (qa.tools_used || [])" :key="t" class="badge">{{ t === 'web' ? '🌐 web' : '📄 pdf' }}</span>
+            </div>
+            <div v-if="qa.sources && qa.sources.length" class="sources" style="margin-top:8px">
+              <details>
+                <summary class="muted" style="cursor:pointer;font-size:12px">sources used ({{ qa.sources.length }})</summary>
+                <div v-for="(sx, j) in qa.sources" :key="j" class="source">
+                  <a :href="sx.url" target="_blank" rel="noopener">{{ sx.title }}</a>
+                  <div v-if="sx.note" class="note">{{ sx.note }}</div>
+                </div>
+              </details>
+            </div>
           </div>
         </div>
       </div>

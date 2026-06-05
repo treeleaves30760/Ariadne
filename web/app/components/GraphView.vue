@@ -92,7 +92,7 @@ async function render() {
       { selector: 'node.nolabels', style: { label: '' } },
     ],
     layout: layoutOpts(),
-    wheelSensitivity: 0.25,
+    wheelSensitivity: 0.6,
   })
 
   cy.on('tap', 'node', (evt: any) => {
@@ -122,6 +122,17 @@ function clearHighlight() {
 }
 function fit() { cy && cy.fit(undefined, 30) }
 function relayout() { cy && cy.layout(layoutOpts()).run() }
+function zoomBy(f: number) {
+  if (!cy) return
+  const level = Math.max(cy.minZoom(), Math.min(cy.maxZoom(), cy.zoom() * f))
+  cy.animate({ zoom: { level, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } } },
+             { duration: 120 })
+}
+function zoomToSelected() {
+  if (!cy) return
+  const sel = cy.$('node.highlight')
+  if (sel.length) cy.animate({ fit: { eles: sel.closedNeighborhood(), padding: 80 } }, { duration: 200 })
+}
 
 watch(layoutMode, relayout)
 watch(showLabels, () => {
@@ -140,7 +151,12 @@ onBeforeUnmount(() => cy && cy.destroy())
         <button :class="{ active: layoutMode === 'levels' }" @click="layoutMode = 'levels'">Rings by depth</button>
         <button :class="{ active: layoutMode === 'force' }" @click="layoutMode = 'force'">Force</button>
       </div>
+      <div class="seg">
+        <button @click="zoomBy(0.8)" title="Zoom out">−</button>
+        <button @click="zoomBy(1.25)" title="Zoom in">+</button>
+      </div>
       <button class="ghost" @click="fit">Fit</button>
+      <button class="ghost" @click="zoomToSelected" title="Zoom to selected">Focus</button>
       <button class="ghost" @click="relayout">Re-layout</button>
       <label class="lbl-toggle"><input type="checkbox" v-model="showLabels" /> labels</label>
     </div>
