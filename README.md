@@ -12,11 +12,16 @@ never misses a key paper.
 - **Report** progressively: a report at depth 3, again at 4 and 5, a final synthesis,
   plus a **web-context report** (DuckDuckGo) that surfaces surveys / recent work
   beyond the citation graph.
-- **Ask the literature** — grounded Q&A over the collected corpus with clickable,
-  verifiable citations back to specific papers.
-- **Explore** a readable Cytoscape graph (rings-by-depth or force layout, hover
-  titles, neighbour highlight) with per-paper AI summaries, live activity feed,
-  open-access PDF links; export BibTeX / Markdown.
+- **Ask the literature** — a tool-augmented chatbot: multi-turn Q&A grounded in the
+  corpus (clickable citations), optionally verified with web search and by reading
+  open-access PDFs.
+- **Rank** papers by an **importance score** (relevance × citations × top-venue) in a
+  sortable papers table.
+- **Explore** a readable Cytoscape graph (rings-by-depth or force layout, responsive
+  zoom, hover titles, neighbour highlight) with per-paper AI summaries, live activity
+  feed, open-access PDF links; export BibTeX / Markdown.
+- **Configure** the model (gpt-5.5 / gpt-5.4 × low→xhigh reasoning) and your own
+  OpenAI-compatible endpoint / API key on the Settings page.
 
 ## Layout
 
@@ -76,10 +81,20 @@ bound every job (reported, never silent, when hit):
 Make runs cheaper/faster by lowering `PC_PER_LEVEL_K`, `PC_MAX_CANDIDATES_PER_LEVEL`,
 and `PC_MAX_CODEX_CALLS`. See `backend/.env.example` for all knobs.
 
+## Model & provider settings
+
+The **Settings** page (or `PUT /settings`) configures, for all Codex calls:
+
+- **Model** — `gpt-5.5` or `gpt-5.4`
+- **Reasoning effort** — `low` / `medium` / `high` / `xhigh`
+- **OpenAI endpoint + API key** (optional) — to use your own key / a compatible
+  endpoint instead of the local `codex login`. The key is stored locally and only
+  returned masked; it is sent only to your configured endpoint.
+
 ## Tests
 
 ```bash
-cd backend && uv run pytest        # 41 tests
+cd backend && uv run pytest        # 46 tests
 ```
 
 ## Status
