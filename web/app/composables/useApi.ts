@@ -29,17 +29,20 @@ export function useApi() {
     /** Subscribe to job progress via SSE. Returns an unsubscribe function. */
     streamEvents(id: string, onEvent: (type: string, data: any) => void): () => void {
       const es = new EventSource(`${base}/jobs/${id}/events`)
+      const terminal = new Set(['done', 'failed', 'end'])
       const handler = (type: string) => (e: MessageEvent) => {
         try {
           onEvent(type, JSON.parse(e.data))
         } catch {
           onEvent(type, e.data)
         }
+        // Close on terminal events so EventSource doesn't auto-reconnect in a loop.
+        if (terminal.has(type)) es.close()
       }
       for (const t of ['snapshot', 'progress', 'note', 'reporting', 'report_ready', 'done', 'failed', 'end']) {
         es.addEventListener(t, handler(t))
       }
-      es.onerror = () => { /* keep open; server closes on terminal event */ }
+      es.onerror = () => { /* transient; server closes the stream on terminal event */ }
       return () => es.close()
     },
   }
