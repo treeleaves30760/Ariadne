@@ -14,7 +14,8 @@ from app.storage.db import Database
 
 WORK_SELECT = (
     "id,doi,display_name,publication_year,referenced_works,cited_by_count,"
-    "authorships,primary_location,ids,abstract_inverted_index,concepts"
+    "authorships,primary_location,ids,abstract_inverted_index,concepts,"
+    "open_access,best_oa_location"
 )
 
 
@@ -73,6 +74,14 @@ class OpenAlex:
             venue = loc["source"].get("display_name")
         concepts = [c.get("display_name") for c in (raw.get("concepts") or [])[:5]
                     if c.get("display_name")]
+        pdf_url = None
+        boa = raw.get("best_oa_location")
+        if isinstance(boa, dict):
+            pdf_url = boa.get("pdf_url") or boa.get("landing_page_url")
+        if not pdf_url:
+            oa = raw.get("open_access")
+            if isinstance(oa, dict):
+                pdf_url = oa.get("oa_url")
         return Paper(
             id=canonical_id(ext),
             title=raw.get("display_name") or raw.get("title"),
@@ -88,6 +97,7 @@ class OpenAlex:
             fields_of_study=concepts,
             external_ids=ext,
             url=ext.doi and f"https://doi.org/{ext.doi}" or (raw.get("id")),
+            pdf_url=pdf_url,
             sources=["openalex"],
         )
 

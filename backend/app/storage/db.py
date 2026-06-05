@@ -19,6 +19,7 @@ from app.models import (
     JobParams,
     JobProgress,
     Paper,
+    QAResult,
     Report,
     Summary,
 )
@@ -76,6 +77,14 @@ CREATE TABLE IF NOT EXISTS api_cache (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS qa (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      TEXT NOT NULL,
+    data        TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_qa_job ON qa(job_id);
 """
 
 
@@ -224,6 +233,36 @@ class Database:
             "SELECT level FROM reports WHERE job_id = ?", (job_id,)
         )
         return [r["level"] for r in await cur.fetchall()]
+
+    # -------------------------------- qa --------------------------------- #
+    async def add_qa(self, job_id: str, qa: "QAResult") -> None:
+        await self._conn.execute(
+            "INSERT INTO qa (job_id, data, created_at) VALUES (?, ?, ?)",
+            (job_id, qa.model_dump_json(), qa.created_at),
+        )
+        await self._conn.commit()
+
+    async def list_qa(self, job_id: str) -> list["QAResult"]:
+        cur = await self._conn.execute(
+            "SELECT data FROM qa WHERE job_id = ? ORDER BY id", (job_id,)
+        )
+        return [QAResult.model_validate_json(r["data"]) for r in await cur.fetchall()]
+
+    # ----------------------------- job list ------------------------------ #
+    async def list_jobs(self, limit: int = 50) -> list[Job]:
+        cur = await self._conn.execute(
+            "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
+        )
+        jobs = []
+        for row in await cur.fetchall():
+            jobs.append(Job(
+                id=row["id"],
+                params=JobParams.model_validate_json(row["params"]),
+                progress=JobProgress.model_validate_json(row["progress"]),
+                created_at=row["created_at"],
+                error=row["error"],
+            ))
+        return jobs
 
 
 _db: Database | None = None

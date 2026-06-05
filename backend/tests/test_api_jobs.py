@@ -76,6 +76,31 @@ async def test_export_endpoints(populated_db):
         assert "A key paper." in md
 
 
+async def test_list_jobs(populated_db):
+    with _client(populated_db) as client:
+        jobs = client.get("/jobs").json()
+        assert any(j["id"] == "job1" for j in jobs)
+
+
+async def test_ask_endpoint(populated_db, monkeypatch):
+    from app.models import QAResult
+
+    async def fake_answer(codex, question, seed, papers, summaries, language="en"):
+        return QAResult(question=question, answer="Grounded answer.",
+                        citations=["10/a"], confidence=0.8)
+
+    monkeypatch.setattr("app.api.jobs_routes.answer_question", fake_answer)
+    with _client(populated_db) as client:
+        resp = client.post("/jobs/job1/ask", json={"question": "What is A about?"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["answer"] == "Grounded answer."
+        assert data["citations"] == ["10/a"]
+        # persisted to history
+        hist = client.get("/jobs/job1/qa").json()
+        assert len(hist) == 1 and hist[0]["question"] == "What is A about?"
+
+
 async def test_create_job_starts_it(populated_db):
     started = {}
 

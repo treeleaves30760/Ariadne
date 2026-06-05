@@ -64,6 +64,7 @@ def merge_papers(papers: list[Paper]) -> Paper:
         fields_of_study=pick("fields_of_study") or [],
         external_ids=ext,
         url=pick("url"),
+        pdf_url=pick("pdf_url"),
         sources=sources,
     )
 

@@ -15,7 +15,7 @@ from typing import Protocol
 
 from app.ai.codex_client import CodexBudgetExceeded
 from app.ai.relevance import score_relevance
-from app.ai.report import generate_report
+from app.ai.report import generate_report, generate_web_context
 from app.ai.summarize import summarize_papers
 from app.config import Settings
 from app.models import Edge, JobParams, Paper
@@ -117,6 +117,8 @@ class GraphExpander:
                 )
                 await self.emit(type="note", message=self.notes[-1])
 
+            await self.emit(type="activity", level=level,
+                            message=f"L{level}: scoring {len(capped)} candidates for relevance (Codex)")
             try:
                 scored = await score_relevance(
                     self.codex, self.seed, capped, self.settings.relevance_batch_size
@@ -170,6 +172,8 @@ class GraphExpander:
 
             # summaries for the newly kept papers
             if self.settings.summarize_kept and new_frontier and self.codex.remaining() > 0:
+                await self.emit(type="activity", level=level,
+                                message=f"L{level}: writing AI summaries for {len(new_frontier)} papers")
                 try:
                     sums = await summarize_papers(
                         self.codex, self.seed, new_frontier, self.params.language
@@ -190,8 +194,15 @@ class GraphExpander:
                 break
 
         # final synthesis
+        final_report = None
         if self.codex.remaining() > 0:
-            await self._make_report("final")
+            final_report = await self._make_report("final")
+
+        # external web context (DuckDuckGo) to extend report depth beyond the graph
+        if self.settings.web_search_enabled and self.codex.remaining() > 0:
+            gaps = final_report.gaps if final_report else []
+            await self._make_web_report(gaps)
+
         await self.emit(type="done", nodes=self.node_count, codex_calls=self.codex.calls,
                         notes=self.notes)
 
@@ -200,7 +211,10 @@ class GraphExpander:
         raw: list[Paper] = []
         links: list[tuple[str, str, str]] = []  # (parent_id, neighbor_id, direction)
         cap = self.settings.prefilter_per_paper
-        for parent in frontier:
+        for i, parent in enumerate(frontier, 1):
+            short = parent.title[:60] + ("…" if len(parent.title) > 60 else "")
+            await self.emit(type="activity", level=level,
+                            message=f"L{level}: fetching links of [{i}/{len(frontier)}] {short}")
             if self.params.include_references:
                 refs = await self.library.get_neighbors(parent.id, "reference", cap, parent.external_ids)
                 for r in refs:
@@ -211,9 +225,12 @@ class GraphExpander:
                 for c in cites:
                     raw.append(c)
                     links.append((parent.id, c.id, "citation"))
-        return dedup_papers(raw), links
+        deduped = dedup_papers(raw)
+        await self.emit(type="activity", level=level,
+                        message=f"L{level}: collected {len(deduped)} unique neighbors")
+        return deduped, links
 
-    async def _make_report(self, level: str) -> None:
+    async def _make_report(self, level: str):
         await self.emit(type="reporting", level=level, message=f"generating report {level}")
         papers = list(self.kept_papers.values())
         try:
@@ -223,6 +240,25 @@ class GraphExpander:
         except CodexBudgetExceeded:
             self.notes.append(f"report {level}: budget exhausted, skipped")
             await self.emit(type="note", message=self.notes[-1])
-            return
+            return None
         await self.db.upsert_report(self.job_id, report)
         await self.emit(type="report_ready", level=level, codex_calls=self.codex.calls)
+        return report
+
+    async def _make_web_report(self, gaps: list[str]) -> None:
+        await self.emit(type="reporting", level="web",
+                        message="searching the web (DuckDuckGo) for external context")
+        await self.emit(type="activity", message="running web searches for surveys & recent work")
+        try:
+            report = await generate_web_context(
+                self.codex, self.seed, gaps,
+                language=self.params.language,
+                max_results=self.settings.web_search_max_results,
+                max_queries=self.settings.web_search_max_queries,
+            )
+        except CodexBudgetExceeded:
+            self.notes.append("web report: budget exhausted, skipped")
+            await self.emit(type="note", message=self.notes[-1])
+            return
+        await self.db.upsert_report(self.job_id, report)
+        await self.emit(type="report_ready", level="web", codex_calls=self.codex.calls)

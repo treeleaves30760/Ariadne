@@ -75,7 +75,7 @@ class FakeCodex:
 
 async def _run(db, *, depth=3, max_nodes=600, k=80):
     settings = Settings(max_nodes=max_nodes, per_level_k=k, relevance_threshold=0.25,
-                        max_codex_calls=200)
+                        max_codex_calls=200, web_search_enabled=False)
     params = JobParams(seed_id="seed", depth=depth, per_level_k=k)
     exp = GraphExpander("job1", SEED, params, library=FakeLibrary(), codex=FakeCodex(),
                         db=db, settings=settings)

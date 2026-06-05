@@ -12,7 +12,10 @@ from app.sources.http import HttpFetcher, Throttle
 from app.sources.ids import canonical_id, norm_arxiv, norm_doi
 from app.storage.db import Database
 
-PAPER_FIELDS = "title,abstract,year,venue,citationCount,fieldsOfStudy,externalIds,authors,tldr,url"
+PAPER_FIELDS = (
+    "title,abstract,year,venue,citationCount,fieldsOfStudy,externalIds,authors,tldr,url,"
+    "openAccessPdf"
+)
 
 
 class SemanticScholar:
@@ -65,6 +68,7 @@ class SemanticScholar:
             fields_of_study=raw.get("fieldsOfStudy") or [],
             external_ids=ext,
             url=raw.get("url"),
+            pdf_url=(raw.get("openAccessPdf") or {}).get("url") if isinstance(raw.get("openAccessPdf"), dict) else None,
             sources=["s2"],
         )
 

@@ -66,6 +66,10 @@ class JobManager:
         async def emit(event: dict) -> None:
             p = job.progress
             t = event.get("type")
+            if t == "activity":
+                # high-frequency, ephemeral feed events: publish only, no DB write
+                await self._publish(job_id, event)
+                return
             if isinstance(event.get("level"), int):  # report levels are strings; skip those
                 p.current_level = event["level"]
             if "nodes" in event:
@@ -76,6 +80,8 @@ class JobManager:
                 p.codex_calls = event["codex_calls"]
             if event.get("message"):
                 p.message = event["message"]
+            if t == "note" and event.get("message"):
+                p.notes.append(event["message"])
             if t == "reporting":
                 p.status = JobStatus.reporting
             elif t in ("progress", "note"):

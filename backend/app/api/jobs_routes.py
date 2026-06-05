@@ -3,19 +3,48 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from app.ai.codex_client import CodexBudgetExceeded, CodexClient
+from app.ai.qa import answer_question
 from app.api.deps import get_database, get_jobs
+from app.config import get_settings
 from app.jobs.manager import TERMINAL, JobManager
-from app.models import Job, JobParams
+from app.models import Job, JobParams, QAResult
 from app.services.export import to_bibtex, to_markdown
 from app.storage.db import Database
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+class AskRequest(BaseModel):
+    question: str
+
+
+async def _load_corpus(db: Database, job_id: str):
+    """Return (rows, papers_by_id, summaries_by_id) for a job."""
+    rows = await db.job_papers(job_id)
+    papers: dict[str, object] = {}
+    summaries: dict[str, str] = {}
+    for r in rows:
+        p = await db.get_paper(r["paper_id"])
+        if p:
+            papers[p.id] = p
+        sm = await db.get_summary(job_id, r["paper_id"])
+        if sm:
+            summaries[r["paper_id"]] = sm.text
+    return rows, papers, summaries
+
+
+@router.get("", response_model=list[Job])
+async def list_jobs(db: Database = Depends(get_database)):
+    return await db.list_jobs()
 
 
 @router.post("", response_model=Job)
@@ -78,6 +107,7 @@ async def job_graph(job_id: str, db: Database = Depends(get_database)):
             "venue": p.venue,
             "citation_count": p.citation_count,
             "url": p.url,
+            "pdf_url": p.pdf_url,
             "external_ids": p.external_ids.model_dump(),
             "level": r["level"],
             "relevance": r["relevance"],
@@ -135,3 +165,34 @@ async def export(
     final_report = await db.get_report(job_id, "final")
     md = to_markdown(seed, rows, papers, summaries, final_report)
     return PlainTextResponse(md, media_type="text/markdown")
+
+
+@router.get("/{job_id}/qa", response_model=list[QAResult])
+async def qa_history(job_id: str, db: Database = Depends(get_database)):
+    return await db.list_qa(job_id)
+
+
+@router.post("/{job_id}/ask", response_model=QAResult)
+async def ask(job_id: str, req: AskRequest, db: Database = Depends(get_database)):
+    job = await db.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "job not found")
+    if not req.question.strip():
+        raise HTTPException(400, "question is required")
+
+    _, papers, summaries = await _load_corpus(db, job_id)
+    if not papers:
+        raise HTTPException(409, "no papers collected yet for this job")
+    seed = papers.get(job.params.seed_id) or next(iter(papers.values()))
+
+    settings = get_settings()
+    codex = CodexClient(settings, max_calls=settings.max_codex_calls)
+    try:
+        result = await answer_question(
+            codex, req.question, seed, list(papers.values()), summaries, job.params.language
+        )
+    except CodexBudgetExceeded:
+        raise HTTPException(429, "Codex budget exhausted")
+    result.created_at = datetime.now(timezone.utc).isoformat()
+    await db.add_qa(job_id, result)
+    return result

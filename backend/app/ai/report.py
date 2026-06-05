@@ -5,7 +5,8 @@ from __future__ import annotations
 from app.ai.codex_client import CodexClient
 from app.ai.relevance import seed_profile
 from app.ai.summarize import LANGUAGE_NAMES
-from app.models import Paper, Report, ReportCluster
+from app.ai.websearch import SearchResult, search_many
+from app.models import Paper, Report, ReportCluster, WebSource
 
 REPORT_SCHEMA = {
     "type": "object",
@@ -116,3 +117,80 @@ async def generate_report(
         gaps=data.get("gaps", []),
         raw=data,
     )
+
+
+WEB_REPORT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "overview": {"type": "string"},
+        "sources": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "url": {"type": "string"},
+                    "note": {"type": "string"},
+                },
+                "required": ["title", "url", "note"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["overview", "sources"],
+    "additionalProperties": False,
+}
+
+
+def _web_queries(seed: Paper, gaps: list[str], max_queries: int) -> list[str]:
+    base = [seed.title, f"{seed.title} survey", f"{seed.title} recent advances"]
+    for g in gaps:
+        base.append(g if len(g) < 90 else g[:90])
+    return base[:max_queries]
+
+
+async def generate_web_context(
+    codex: CodexClient,
+    seed: Paper,
+    gaps: list[str],
+    *,
+    language: str = "en",
+    max_results: int = 5,
+    max_queries: int = 6,
+) -> Report:
+    """Search the web (DuckDuckGo) and synthesize an external-context report.
+
+    Surfaces surveys / recent / follow-up work that may not be in the citation graph.
+    """
+    queries = _web_queries(seed, gaps, max_queries)
+    results = await search_many(queries, max_results)
+    if not results:
+        return Report(level="web", overview="No external web results were found.", sources=[])
+
+    by_url = {r.url: r for r in results}
+    lang = LANGUAGE_NAMES.get(language, "English")
+    block = "\n".join(f"- {r.title}\n  url: {r.url}\n  {r.snippet[:300]}" for r in results)
+    prompt = (
+        f"You are extending a literature report with EXTERNAL web context, in {lang}. "
+        "Below are web search results related to the seed topic (these are NOT from the "
+        "citation graph). Write a concise synthesis of what additional/recent/related work "
+        "they reveal — surveys, follow-up directions, tools, or perspectives that complement "
+        "the citation graph — and select the most useful sources with a one-line note each. "
+        "Only use URLs that appear in the list; do not invent sources.\n\n"
+        f"SEED:\n{seed_profile(seed)}\n\n"
+        f"WEB RESULTS:\n{block}\n"
+    )
+    data = await codex.run_structured(prompt, WEB_REPORT_SCHEMA)
+    data = data or {}
+    sources: list[WebSource] = []
+    for s in data.get("sources", []):
+        url = s.get("url", "")
+        real = by_url.get(url)
+        if real is None:  # tolerate trailing slashes / minor mismatch
+            real = next((r for r in results if r.url.rstrip("/") == url.rstrip("/")), None)
+        if real:
+            sources.append(WebSource(title=real.title, url=real.url, note=s.get("note", "")))
+    # fall back to raw results if the model returned none
+    if not sources:
+        sources = [WebSource(title=r.title, url=r.url, note=r.snippet[:140]) for r in results[:max_results]]
+    return Report(level="web", overview=data.get("overview", ""), sources=sources, raw=data)

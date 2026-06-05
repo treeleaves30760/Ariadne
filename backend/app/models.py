@@ -41,6 +41,7 @@ class Paper(BaseModel):
     fields_of_study: list[str] = Field(default_factory=list)
     external_ids: ExternalIds = Field(default_factory=ExternalIds)
     url: str | None = None
+    pdf_url: str | None = None  # open-access PDF when available
     sources: list[str] = Field(default_factory=list)  # ["s2", "openalex"]
 
 
@@ -109,7 +110,8 @@ class JobProgress(BaseModel):
     edges: int = 0
     codex_calls: int = 0
     message: str = ""
-    reports_available: list[str] = Field(default_factory=list)  # ["3","4","5","final"]
+    reports_available: list[str] = Field(default_factory=list)  # ["3","4","5","final","web"]
+    notes: list[str] = Field(default_factory=list)  # truncation / budget transparency
 
 
 class Job(BaseModel):
@@ -141,10 +143,25 @@ class ReportCluster(BaseModel):
     paper_ids: list[str] = Field(default_factory=list)
 
 
+class WebSource(BaseModel):
+    title: str
+    url: str
+    note: str = ""
+
+
 class Report(BaseModel):
-    level: str  # "3" | "4" | "5" | "final"
+    level: str  # "3" | "4" | "5" | "final" | "web"
     overview: str
     clusters: list[ReportCluster] = Field(default_factory=list)
     must_reads: list[str] = Field(default_factory=list)  # paper ids
     gaps: list[str] = Field(default_factory=list)
+    sources: list[WebSource] = Field(default_factory=list)  # external web context
     raw: dict[str, Any] | None = None
+
+
+class QAResult(BaseModel):
+    question: str
+    answer: str
+    citations: list[str] = Field(default_factory=list)  # paper ids supporting the answer
+    confidence: float = 0.0
+    created_at: str = ""

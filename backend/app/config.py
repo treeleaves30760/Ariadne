@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     http_timeout_s: float = 30.0
     http_max_retries: int = 4
 
+    # --- Web search (DuckDuckGo) for report enrichment ---
+    web_search_enabled: bool = True
+    web_search_max_results: int = 5
+    web_search_max_queries: int = 6
+
     # --- Codex ---
     codex_bin: str = "codex"
     codex_model: str | None = None
