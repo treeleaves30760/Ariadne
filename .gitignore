@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+backend/.venv/
+*.egg-info/
+.pytest_cache/
+
+# Env / secrets
+.env
+*.local
+
+# Databases
+*.db
+*.db-journal
+*.sqlite3
+
+# Node / Nuxt
+node_modules/
+web/.nuxt/
+web/.output/
+web/dist/
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+
+# Codex scratch
+.codex_tmp/
