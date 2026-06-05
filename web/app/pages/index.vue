@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Candidate } from '~/types'
+import type { Candidate, Job } from '~/types'
 
 const api = useApi()
 const router = useRouter()
@@ -12,6 +12,11 @@ const creating = ref('')
 const error = ref('')
 const candidates = ref<Candidate[]>([])
 const searched = ref(false)
+const recent = ref<Job[]>([])
+
+onMounted(async () => {
+  try { recent.value = (await api.listJobs()).slice(0, 8) } catch { /* backend may be down */ }
+})
 
 async function search() {
   if (!query.value.trim()) return
@@ -84,6 +89,19 @@ async function pick(c: Candidate) {
     </div>
 
     <p v-if="error" class="error" style="margin-top:16px">{{ error }}</p>
+
+    <div v-if="!searched && recent.length" class="recent">
+      <h2>Recent maps</h2>
+      <div v-for="j in recent" :key="j.id" class="job-row" @click="router.push(`/jobs/${j.id}`)">
+        <div>
+          <div>{{ (j.params as any).seed_id }}</div>
+          <div class="muted" style="font-size:12px">
+            depth {{ (j.params as any).depth }} · {{ j.progress.nodes }} papers · {{ j.progress.status }}
+          </div>
+        </div>
+        <span class="muted" style="font-size:12px">{{ j.created_at.slice(0, 10) }}</span>
+      </div>
+    </div>
 
     <template v-if="searched">
       <h2>Pick the seed paper <span class="muted" style="font-weight:400">({{ candidates.length }} candidates)</span></h2>

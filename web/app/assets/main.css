@@ -122,6 +122,55 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 .panel .reason { margin-top: 10px; font-size: 13px; color: var(--text-dim); font-style: italic; }
 .kv { font-size: 13px; color: var(--text-dim); margin-top: 8px; }
 
+/* graph toolbar + tooltip */
+.graph-wrap { position: relative; }
+.graph-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.graph-toolbar .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.graph-toolbar .seg button { background: var(--bg-2); color: var(--text-dim); border: none; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+.graph-toolbar .seg button.active { background: var(--bg-3); color: var(--text); }
+.graph-toolbar .ghost { background: var(--bg-2); color: var(--text-dim); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+.graph-toolbar .ghost:hover { color: var(--text); border-color: var(--accent); }
+.graph-toolbar .lbl-toggle { color: var(--text-dim); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
+.cy-tip {
+  position: absolute; z-index: 10; max-width: 260px; pointer-events: none;
+  background: #0b0f15; color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 10px; font-size: 12px; line-height: 1.35; box-shadow: var(--shadow);
+}
+
+/* Q&A */
+.qa-input { display: flex; gap: 10px; align-items: stretch; }
+.qa-input input { flex: 1; }
+.qa-answer { margin-top: 14px; }
+.qa-answer .a-body { background: var(--bg-3); border-left: 3px solid var(--accent-2); border-radius: 8px; padding: 14px; }
+.qa-cites { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.chip { background: var(--bg-2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; font-size: 12px; cursor: pointer; color: var(--text-dim); }
+.chip:hover { border-color: var(--accent); color: var(--text); }
+.qa-history { margin-top: 22px; }
+.qa-q { font-weight: 600; margin-top: 14px; }
+.conf { font-size: 12px; color: var(--text-dim); }
+
+/* web sources */
+.sources .source { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-top: 10px; background: var(--bg-2); }
+.sources .source a { font-weight: 600; }
+.sources .source .note { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+.sources .source .host { color: var(--cite); font-size: 12px; }
+
+/* activity feed */
+.feed { margin-top: 14px; max-height: 230px; overflow-y: auto; }
+.feed .row-line { font-size: 12.5px; color: var(--text-dim); padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); font-variant-numeric: tabular-nums; }
+.feed .row-line:first-child { color: var(--text); }
+
+/* markdown */
+.md :is(p) { margin: 8px 0; }
+.md :is(ul,ol) { margin: 8px 0; padding-left: 20px; }
+.md code { background: var(--bg-3); padding: 1px 5px; border-radius: 5px; font-size: 13px; }
+.md a { color: var(--accent); }
+
+/* recent jobs */
+.recent { margin-top: 30px; }
+.recent .job-row { display: flex; justify-content: space-between; gap: 12px; padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-2); margin-top: 8px; cursor: pointer; }
+.recent .job-row:hover { border-color: var(--accent); }
+
 .report .overview { font-size: 15px; }
 .cluster { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 12px; background: var(--bg-2); }
 .cluster .theme { font-weight: 650; }

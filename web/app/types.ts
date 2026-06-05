@@ -42,6 +42,7 @@ export interface GraphNode {
   venue?: string | null
   citation_count?: number | null
   url?: string | null
+  pdf_url?: string | null
   external_ids: ExternalIds
   level: number
   relevance?: number | null
@@ -67,10 +68,25 @@ export interface ReportCluster {
   paper_ids: string[]
 }
 
+export interface WebSource {
+  title: string
+  url: string
+  note: string
+}
+
 export interface Report {
   level: string
   overview: string
   clusters: ReportCluster[]
   must_reads: string[]
   gaps: string[]
+  sources?: WebSource[]
+}
+
+export interface QAResult {
+  question: string
+  answer: string
+  citations: string[]
+  confidence: number
+  created_at: string
 }
