@@ -9,8 +9,14 @@ never misses a key paper.
 - **Input** a paper title / DOI / arXiv id / benchmark name → pick from candidates.
 - **Expand** references (backward) and citations (forward) to depth 3–5.
 - **Filter** each level with Codex (loose by default), keeping the most relevant papers.
-- **Report** progressively: a report at depth 3, again at 4 and 5, plus a final synthesis.
-- **Explore** the graph (Cytoscape) with per-paper AI summaries; export BibTeX / Markdown.
+- **Report** progressively: a report at depth 3, again at 4 and 5, a final synthesis,
+  plus a **web-context report** (DuckDuckGo) that surfaces surveys / recent work
+  beyond the citation graph.
+- **Ask the literature** — grounded Q&A over the collected corpus with clickable,
+  verifiable citations back to specific papers.
+- **Explore** a readable Cytoscape graph (rings-by-depth or force layout, hover
+  titles, neighbour highlight) with per-paper AI summaries, live activity feed,
+  open-access PDF links; export BibTeX / Markdown.
 
 ## Layout
 
@@ -53,7 +59,10 @@ is taken: run the backend with `--port 8008` and set
 3. **Filter** — each level is cheaply prefiltered, then scored by Codex; the most
    relevant papers (loose threshold + top-K) are kept and summarized.
 4. **Report** — a progressive report at depth 3, again at 4 and 5, plus a final synthesis.
-5. **Explore** — interactive Cytoscape graph + AI summaries; export BibTeX / Markdown.
+5. **Enrich** — a DuckDuckGo web search adds an external-context report (surveys,
+   recent / follow-up work) that may not appear in the citations.
+6. **Explore & ask** — interactive graph + AI summaries, and a grounded Q&A tab to
+   interrogate the corpus; export BibTeX / Markdown.
 
 ## Tuning cost & breadth
 
@@ -70,7 +79,7 @@ and `PC_MAX_CODEX_CALLS`. See `backend/.env.example` for all knobs.
 ## Tests
 
 ```bash
-cd backend && uv run pytest        # 36 tests
+cd backend && uv run pytest        # 41 tests
 ```
 
 ## Status
