@@ -28,11 +28,12 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="Paper Connector", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Ariadne", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        allow_origin_regex=settings.cors_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

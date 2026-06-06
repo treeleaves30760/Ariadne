@@ -54,7 +54,15 @@ class Settings(BaseSettings):
     db_path: str = "paper_connector.db"
 
     # --- CORS ---
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:24678"]
+    # Explicit dev origins; the regex below also covers any localhost/127.0.0.1 port,
+    # so the page works whether opened via localhost:3000 or 127.0.0.1:3000.
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:24678",
+        "http://127.0.0.1:24678",
+    ]
+    cors_origin_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
     @property
     def db_file(self) -> Path:
