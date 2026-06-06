@@ -1,8 +1,26 @@
 <script setup lang="ts">
 import type { GraphData } from '~/types'
 
-const props = defineProps<{ data: GraphData }>()
-const emit = defineEmits<{ (e: 'select', id: string): void }>()
+const props = defineProps<{ data: GraphData; selectedId?: string | null }>()
+const emit = defineEmits<{
+  (e: 'select', id: string | null): void
+  (e: 'hover', id: string | null): void
+}>()
+
+// Importance → colour heat (dim slate → blue → vivid violet). Brighter = more important.
+const IMP_STOPS: [number, string][] = [[0, '#3a4665'], [0.5, '#5b86d6'], [1, '#b48cff']]
+function hexToRgb(h: string) { return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) }
+function impColor(t: number): string {
+  t = Math.max(0, Math.min(1, t || 0))
+  let i = 0
+  while (i < IMP_STOPS.length - 1 && t > IMP_STOPS[i + 1][0]) i++
+  const [t0, c0] = IMP_STOPS[i]
+  const [t1, c1] = IMP_STOPS[Math.min(i + 1, IMP_STOPS.length - 1)]
+  const f = t1 === t0 ? 0 : (t - t0) / (t1 - t0)
+  const a = hexToRgb(c0), b = hexToRgb(c1)
+  const m = a.map((v, k) => Math.round(v + (b[k] - v) * f))
+  return `rgb(${m[0]},${m[1]},${m[2]})`
+}
 
 const el = ref<HTMLElement | null>(null)
 const tip = ref<{ show: boolean; x: number; y: number; text: string }>({ show: false, x: 0, y: 0, text: '' })
@@ -19,6 +37,8 @@ function elements(data: GraphData) {
       full: n.title,
       level: n.level,
       rel: n.relevance ?? 0.5,
+      imp: n.importance ?? 0.3,
+      tv: n.top_venue ? 1 : 0,
       seed: n.level === 0 ? 1 : 0,
     },
   }))
@@ -55,22 +75,23 @@ async function render() {
       {
         selector: 'node',
         style: {
-          'background-color': (n: any) =>
-            n.data('seed') ? '#f7768e' : `hsl(${214 - n.data('rel') * 8}, 85%, ${58 + n.data('rel') * 8}%)`,
-          width: (n: any) => 12 + n.data('rel') * 16 + (n.data('seed') ? 10 : 0),
-          height: (n: any) => 12 + n.data('rel') * 16 + (n.data('seed') ? 10 : 0),
+          // Small circles; importance is encoded by COLOUR (not size).
+          'background-color': (n: any) => (n.data('seed') ? '#f7768e' : impColor(n.data('imp'))),
+          width: (n: any) => (n.data('seed') ? 16 : 9 + n.data('imp') * 5),
+          height: (n: any) => (n.data('seed') ? 16 : 9 + n.data('imp') * 5),
           label: 'data(label)',
-          color: '#dbe4ee',
-          'font-size': 7,
-          'min-zoomed-font-size': 7, // hide labels when zoomed out so they never become unreadable
+          color: '#cfd9e6',
+          'font-size': 6.5,
+          'min-zoomed-font-size': 8, // hide labels when zoomed out so they never become unreadable
           'text-wrap': 'wrap',
-          'text-max-width': '80px',
+          'text-max-width': '76px',
           'text-valign': 'bottom',
           'text-margin-y': 2,
           'text-outline-width': 2,
           'text-outline-color': '#0e1116',
-          'border-width': (n: any) => (n.data('seed') ? 3 : 0),
-          'border-color': '#ffd4dc',
+          // gold ring marks top-venue papers; seed keeps its pink ring
+          'border-width': (n: any) => (n.data('seed') ? 2.5 : n.data('tv') ? 1.5 : 0),
+          'border-color': (n: any) => (n.data('seed') ? '#ffd4dc' : '#ffd479'),
           'transition-property': 'opacity, border-width',
           'transition-duration': 150,
         },
@@ -96,16 +117,18 @@ async function render() {
   })
 
   cy.on('tap', 'node', (evt: any) => {
-    emit('select', evt.target.id())
-    highlightNeighborhood(evt.target)
+    const tapped = evt.target.id()
+    emit('select', tapped === props.selectedId ? null : tapped)  // re-tap toggles off
   })
-  cy.on('tap', (evt: any) => { if (evt.target === cy) clearHighlight() })
+  cy.on('tap', (evt: any) => { if (evt.target === cy) emit('select', null) })  // empty canvas → deselect
   cy.on('mouseover', 'node', (evt: any) => {
     const p = evt.renderedPosition || evt.target.renderedPosition()
     tip.value = { show: true, x: p.x, y: p.y, text: evt.target.data('full') }
+    emit('hover', evt.target.id())   // let the side list scroll to & preview this paper
   })
-  cy.on('mouseout', 'node', () => { tip.value.show = false })
+  cy.on('mouseout', 'node', () => { tip.value.show = false; emit('hover', null) })
   cy.on('pan zoom', () => { tip.value.show = false })
+  applySelection(props.selectedId)  // restore highlight after a (re-)render
 }
 
 function highlightNeighborhood(node: any) {
@@ -119,6 +142,13 @@ function clearHighlight() {
   if (!cy) return
   cy.elements().removeClass('faded')
   cy.nodes().removeClass('highlight')
+}
+/** Reflect the parent's selection: highlight that node's neighborhood, or clear. */
+function applySelection(id: string | null | undefined) {
+  if (!cy) return
+  const n = id ? cy.getElementById(id) : null
+  if (n && n.length) highlightNeighborhood(n)
+  else clearHighlight()
 }
 function fit() { cy && cy.fit(undefined, 30) }
 function relayout() { cy && cy.layout(layoutOpts()).run() }
@@ -134,6 +164,7 @@ function zoomToSelected() {
   if (sel.length) cy.animate({ fit: { eles: sel.closedNeighborhood(), padding: 80 } }, { duration: 200 })
 }
 
+watch(() => props.selectedId, (id) => applySelection(id))
 watch(layoutMode, relayout)
 watch(showLabels, () => {
   if (!cy) return
@@ -163,10 +194,12 @@ onBeforeUnmount(() => cy && cy.destroy())
     <div ref="el" id="cy" />
     <div v-if="tip.show" class="cy-tip" :style="{ left: tip.x + 14 + 'px', top: tip.y + 12 + 'px' }">{{ tip.text }}</div>
     <div class="legend">
-      <span><i style="background:#f7768e" />seed</span>
+      <span><i class="dot" style="background:#f7768e" />seed</span>
+      <span><i class="dot grad" />importance (brighter = higher)</span>
+      <span><i class="dot ring" />★ top venue</span>
       <span><i style="background:#f0a868" />reference (this cites →)</span>
       <span><i style="background:#5ec8a6" />citation (→ cites this)</span>
-      <span class="muted">size = relevance · hover for title · click to focus</span>
+      <span class="muted">hover a node to preview · click to focus</span>
     </div>
   </div>
 </template>

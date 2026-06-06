@@ -11,7 +11,10 @@ const graph = ref<GraphData>({ nodes: [], edges: [] })
 const reports = ref<Record<string, Report>>({})
 const reportLevels = ref<string[]>([])
 const selectedId = ref<string | null>(null)
-const tab = ref<'graph' | 'papers' | 'reports' | 'ask'>('graph')
+const hoveredId = ref<string | null>(null)      // node currently hovered on the graph
+const headerCollapsed = ref(false)              // status card collapses once the job finishes
+const tab = ref<'map' | 'papers' | 'reports' | 'ask'>('map')
+const mapMode = ref<'cards' | 'table'>('cards')   // right-column list style in the Map view
 const activeReport = ref<string>('')
 const sortKey = ref<'importance' | 'relevance' | 'citation_count' | 'year' | 'level'>('importance')
 const useTools = ref(true)
@@ -28,6 +31,19 @@ const qaError = ref('')
 const depth = computed(() => Number((job.value?.params as any)?.depth ?? 5))
 const status = computed(() => job.value?.progress.status ?? 'queued')
 const isTerminal = computed(() => ['completed', 'failed'].includes(status.value))
+// Auto-collapse the progress card the moment the job reaches a terminal state.
+watch(isTerminal, (t) => { if (t) headerCollapsed.value = true })
+
+// Hover on a graph node → scroll the matching card/row into view in the side list.
+function onHover(cid: string | null) {
+  hoveredId.value = cid
+  if (!cid || selected.value) return
+  nextTick(() => {
+    const root = document.querySelector('.map-side')
+    const elx = root?.querySelector(`[data-pid="${CSS.escape(cid)}"]`)
+    elx?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
+}
 const progressPct = computed(() => {
   const p = job.value?.progress
   if (!p) return 0
@@ -80,7 +96,7 @@ async function ask() {
     asking.value = false
   }
 }
-function gotoPaper(cid: string) { selectedId.value = cid; tab.value = 'graph' }
+function gotoPaper(cid: string) { selectedId.value = cid; tab.value = 'map' }
 
 onMounted(async () => {
   try { job.value = await api.getJob(id) } catch { /* */ }
@@ -116,37 +132,47 @@ onBeforeUnmount(() => stop && stop())
 </script>
 
 <template>
-  <div class="container" style="max-width: 1180px">
+  <div class="container job-page" style="max-width: 1480px">
     <NuxtLink to="/" class="muted">← New search</NuxtLink>
     <h1 style="margin-top:10px">{{ seedNode?.title || 'Building citation map…' }}</h1>
 
-    <div class="card" style="margin-top:8px">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
-        <div>
-          <span class="pill">{{ status }}</span>
-          <span class="muted" style="margin-left:10px">{{ job?.progress.message }}</span>
+    <div class="card statuscard" :class="{ collapsed: headerCollapsed && isTerminal }" style="margin-top:8px">
+      <div class="status-head">
+        <div class="status-lead">
+          <span class="pill" :class="{ ok: status === 'completed', bad: status === 'failed' }">{{ status }}</span>
+          <span class="muted status-msg">{{ job?.progress.message }}</span>
+          <span v-if="headerCollapsed && isTerminal" class="status-sum muted">
+            · {{ job?.progress.nodes ?? 0 }} papers · {{ job?.progress.edges ?? 0 }} links ·
+            depth {{ job?.progress.current_level ?? 0 }}/{{ depth }} ·
+            {{ job?.progress.codex_calls ?? 0 }} Codex calls
+          </span>
         </div>
-        <div style="display:flex; gap:8px">
-          <a class="btn secondary" :href="api.exportUrl(id, 'markdown')" target="_blank">Export .md</a>
-          <a class="btn secondary" :href="api.exportUrl(id, 'bibtex')" target="_blank">Export .bib</a>
+        <div class="status-actions">
+          <a class="btn secondary sm" :href="api.exportUrl(id, 'markdown')" target="_blank">Export .md</a>
+          <a class="btn secondary sm" :href="api.exportUrl(id, 'bibtex')" target="_blank">Export .bib</a>
+          <button v-if="isTerminal" class="chev" :title="headerCollapsed ? 'Show details' : 'Collapse'"
+            @click="headerCollapsed = !headerCollapsed">{{ headerCollapsed ? '⌄' : '⌃' }}</button>
         </div>
       </div>
-      <div class="progress-bar"><div :style="{ width: progressPct + '%' }" /></div>
-      <div class="stats">
-        <div class="stat"><div class="n">{{ job?.progress.nodes ?? 0 }}</div><div class="l">papers</div></div>
-        <div class="stat"><div class="n">{{ job?.progress.edges ?? 0 }}</div><div class="l">links</div></div>
-        <div class="stat"><div class="n">{{ job?.progress.current_level ?? 0 }}/{{ depth }}</div><div class="l">depth</div></div>
-        <div class="stat"><div class="n">{{ job?.progress.codex_calls ?? 0 }}</div><div class="l">Codex calls</div></div>
-      </div>
-      <!-- live activity line -->
-      <div v-if="!isTerminal && activity.length" class="muted" style="margin-top:10px;font-size:13px">
-        <span class="spinner" /> {{ activity[0] }}
+
+      <div v-if="!(headerCollapsed && isTerminal)">
+        <div class="progress-bar"><div :style="{ width: progressPct + '%' }" /></div>
+        <div class="stats">
+          <div class="stat"><div class="n">{{ job?.progress.nodes ?? 0 }}</div><div class="l">papers</div></div>
+          <div class="stat"><div class="n">{{ job?.progress.edges ?? 0 }}</div><div class="l">links</div></div>
+          <div class="stat"><div class="n">{{ job?.progress.current_level ?? 0 }}/{{ depth }}</div><div class="l">depth</div></div>
+          <div class="stat"><div class="n">{{ job?.progress.codex_calls ?? 0 }}</div><div class="l">Codex calls</div></div>
+        </div>
+        <!-- live activity line -->
+        <div v-if="!isTerminal && activity.length" class="muted" style="margin-top:10px;font-size:13px">
+          <span class="spinner" /> {{ activity[0] }}
+        </div>
       </div>
       <p v-if="job?.error" class="error" style="margin-top:10px">{{ job.error }}</p>
     </div>
 
     <div class="tabs">
-      <div class="tab" :class="{ active: tab === 'graph' }" @click="tab = 'graph'">Graph</div>
+      <div class="tab" :class="{ active: tab === 'map' }" @click="tab = 'map'">Map</div>
       <div class="tab" :class="{ active: tab === 'papers' }" @click="tab = 'papers'">
         Papers <span v-if="graph.nodes.length" class="muted">({{ graph.nodes.length }})</span>
       </div>
@@ -156,60 +182,22 @@ onBeforeUnmount(() => stop && stop())
       <div class="tab" :class="{ active: tab === 'ask' }" @click="tab = 'ask'">Ask the literature</div>
     </div>
 
-    <!-- PAPERS TAB -->
-    <div v-show="tab === 'papers'">
-      <div v-if="!graph.nodes.length" class="card muted">No papers yet.</div>
-      <div v-else class="card" style="overflow:auto; max-height: 70vh">
-        <table class="ptable">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Title</th>
-              <th class="num" @click="setSort('year')">Year</th>
-              <th>Venue</th>
-              <th class="num" @click="setSort('citation_count')">Cites ⇅</th>
-              <th class="num" @click="setSort('relevance')">Rel ⇅</th>
-              <th class="num" @click="setSort('importance')">Importance ⇅</th>
-              <th class="num" @click="setSort('level')">Lvl</th>
-              <th>Links</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(p, i) in sortedPapers" :key="p.id" @click="gotoPaper(p.id)">
-              <td class="num muted">{{ i + 1 }}</td>
-              <td class="t-title">{{ p.title }}
-                <span v-if="p.top_venue" class="star" title="top venue">★</span>
-              </td>
-              <td class="num">{{ p.year || '—' }}</td>
-              <td>{{ p.venue || '—' }}</td>
-              <td class="num">{{ (p.citation_count || 0).toLocaleString() }}</td>
-              <td class="num">{{ p.relevance != null ? (p.relevance * 100).toFixed(0) + '%' : '—' }}</td>
-              <td class="num">
-                <span class="bar" :style="{ width: ((p.importance || 0) * 60) + 'px' }" />
-                {{ ((p.importance || 0) * 100).toFixed(0) }}
-              </td>
-              <td class="num">{{ p.level }}</td>
-              <td @click.stop>
-                <a v-if="p.pdf_url" :href="p.pdf_url" target="_blank">PDF</a>
-                <a v-if="p.external_ids.doi" :href="`https://doi.org/${p.external_ids.doi}`" target="_blank" style="margin-left:8px">DOI</a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- GRAPH TAB -->
-    <div v-show="tab === 'graph'" class="job-layout">
+    <!-- MAP: graph (left) + paper list / detail (right) -->
+    <div v-show="tab === 'map'" class="map-layout">
       <div>
         <ClientOnly>
-          <GraphView v-if="graph.nodes.length" :data="graph" @select="selectedId = $event" />
+          <GraphView
+            v-if="graph.nodes.length" :data="graph" :selected-id="selectedId"
+            @select="selectedId = $event" @hover="onHover"
+          />
           <div v-else class="card muted">Graph will appear as papers are collected…</div>
         </ClientOnly>
       </div>
 
-      <div class="card panel">
+      <div class="card panel map-side">
+        <!-- DETAIL for the clicked paper -->
         <template v-if="selected">
+          <a class="muted backlink" @click="selectedId = null">← Back to list</a>
           <div class="ptitle">{{ selected.title }}</div>
           <div class="kv">
             {{ selected.authors.slice(0, 4).join(', ') }}
@@ -236,9 +224,66 @@ onBeforeUnmount(() => stop && stop())
             <a v-if="selected.external_ids.arxiv" :href="`https://arxiv.org/abs/${selected.external_ids.arxiv}`" target="_blank" style="margin-left:12px">arXiv ↗</a>
           </div>
         </template>
+
+        <!-- PAPER LIST (cards or table) -->
         <template v-else>
-          <div class="muted">Click a node to see its details and AI explanation.</div>
-          <div v-if="activity.length" class="qa-history">
+          <div class="list-head">
+            <strong>Papers <span class="muted" style="font-weight:400">({{ graph.nodes.length }})</span></strong>
+            <div class="seg">
+              <button :class="{ active: mapMode === 'cards' }" @click="mapMode = 'cards'">Cards</button>
+              <button :class="{ active: mapMode === 'table' }" @click="mapMode = 'table'">Table</button>
+            </div>
+          </div>
+
+          <div v-if="!graph.nodes.length" class="muted">No papers yet.</div>
+
+          <template v-else>
+            <div class="sortbar">
+              <span>sort</span>
+              <select v-model="sortKey">
+                <option value="importance">importance</option>
+                <option value="relevance">relevance</option>
+                <option value="citation_count">citations</option>
+                <option value="year">year</option>
+                <option value="level">level</option>
+              </select>
+            </div>
+
+            <!-- CARDS -->
+            <div v-if="mapMode === 'cards'" class="pcards">
+              <div
+                v-for="(p, i) in sortedPapers" :key="p.id" class="pcard"
+                :class="{ 'hover-active': p.id === hoveredId }" :data-pid="p.id"
+                @click="selectedId = p.id"
+                @mouseenter="hoveredId = p.id" @mouseleave="hoveredId = null"
+              >
+                <div class="pc-title">{{ i + 1 }}. {{ p.title }}
+                  <span v-if="p.top_venue" class="star" title="top venue">★</span>
+                </div>
+                <div class="pc-meta muted">
+                  {{ p.year || '—' }} · {{ p.venue || '—' }} ·
+                  {{ (p.citation_count || 0).toLocaleString() }} cites ·
+                  imp {{ ((p.importance || 0) * 100).toFixed(0) }} · L{{ p.level }}
+                </div>
+                <div v-if="p.summary" class="pc-sum">{{ p.summary }}</div>
+                <div class="pc-links" @click.stop>
+                  <a v-if="p.pdf_url" :href="p.pdf_url" target="_blank">PDF ↗</a>
+                  <a v-if="p.external_ids.doi" :href="`https://doi.org/${p.external_ids.doi}`" target="_blank">DOI ↗</a>
+                </div>
+              </div>
+            </div>
+
+            <!-- TABLE -->
+            <div v-else style="overflow:auto">
+              <PaperTable
+                :papers="sortedPapers" :sort-key="sortKey" :selected-id="selectedId" :hovered-id="hoveredId"
+                @sort="setSort" @select="selectedId = $event" @hover="hoveredId = $event"
+              />
+            </div>
+          </template>
+
+          <!-- live activity + notes while the job runs -->
+          <div v-if="!isTerminal && activity.length" class="qa-history">
             <h3>Live activity</h3>
             <div class="feed">
               <div v-for="(a, i) in activity.slice(0, 12)" :key="i" class="row-line">{{ a }}</div>
@@ -249,6 +294,17 @@ onBeforeUnmount(() => stop && stop())
             <div v-for="(n, i) in notes.slice(-8)" :key="i" class="kv">· {{ n }}</div>
           </div>
         </template>
+      </div>
+    </div>
+
+    <!-- PAPERS TAB (standalone full table) -->
+    <div v-show="tab === 'papers'">
+      <div v-if="!graph.nodes.length" class="card muted">No papers yet.</div>
+      <div v-else class="card" style="overflow:auto; max-height: 70vh">
+        <PaperTable
+          :papers="sortedPapers" :sort-key="sortKey" :selected-id="selectedId"
+          @sort="setSort" @select="gotoPaper"
+        />
       </div>
     </div>
 

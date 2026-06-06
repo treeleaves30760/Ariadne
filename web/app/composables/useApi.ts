@@ -19,6 +19,12 @@ export function useApi() {
 
     listJobs: () => req<Job[]>('/jobs'),
 
+    renameJob: (id: string, name: string) =>
+      req<Job>(`/jobs/${id}`, { method: 'PATCH', body: { name } }),
+
+    deleteJob: (id: string) =>
+      req<{ ok: boolean }>(`/jobs/${id}`, { method: 'DELETE' }),
+
     ask: (id: string, question: string, useTools = true) =>
       req<QAResult>(`/jobs/${id}/ask`, { method: 'POST', body: { question, use_tools: useTools } }),
 

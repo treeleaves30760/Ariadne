@@ -14,9 +14,102 @@ const candidates = ref<Candidate[]>([])
 const searched = ref(false)
 const recent = ref<Job[]>([])
 
+// recent-map right-click menu + inline rename
+const menu = ref<{ job: Job; x: number; y: number } | null>(null)
+const confirmingDelete = ref(false)
+const editingId = ref<string | null>(null)
+const editName = ref('')
+const navLock = ref(false)
+
 onMounted(async () => {
   try { recent.value = (await api.listJobs()).slice(0, 8) } catch { /* backend may be down */ }
+  document.addEventListener('click', closeMenu)
+  document.addEventListener('keydown', onKey)
 })
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeMenu)
+  document.removeEventListener('keydown', onKey)
+})
+
+/** Display label: custom name → seed title (first 40 chars) → seed id. */
+function mapLabel(j: Job): string {
+  const name = j.name?.trim()
+  if (name) return name
+  const t = j.seed_title?.trim()
+  if (t) return t.length > 40 ? t.slice(0, 40) + '…' : t
+  return String((j.params as any).seed_id)
+}
+
+/** Full, untruncated label — for tooltips and as the rename prefill. */
+function fullLabel(j: Job): string {
+  return j.name?.trim() || j.seed_title?.trim() || String((j.params as any).seed_id)
+}
+
+function openJob(j: Job) {
+  if (navLock.value || editingId.value) return
+  router.push(`/jobs/${j.id}`)
+}
+
+function openMenu(e: MouseEvent, j: Job) {
+  menu.value = { job: j, x: e.clientX, y: e.clientY }
+  confirmingDelete.value = false
+}
+
+function closeMenu() {
+  menu.value = null
+  confirmingDelete.value = false
+}
+
+// Briefly ignore row clicks so the click that ends an inline edit doesn't also navigate.
+function lockNav() {
+  navLock.value = true
+  window.setTimeout(() => { navLock.value = false }, 60)
+}
+
+async function startRename(j: Job) {
+  editName.value = fullLabel(j)
+  editingId.value = j.id
+  closeMenu()
+  await nextTick()
+  const el = document.getElementById('rename-' + j.id) as HTMLInputElement | null
+  el?.focus()
+  el?.select()
+}
+
+async function saveRename(j: Job) {
+  if (editingId.value !== j.id) return   // guards against blur firing after enter/esc
+  editingId.value = null
+  lockNav()
+  let name = editName.value.trim()
+  if (name === (j.seed_title?.trim() || '')) name = ''  // same as the title → keep default
+  if (name === (j.name || '')) return                    // nothing changed
+  try {
+    const updated = await api.renameJob(j.id, name)
+    j.name = updated.name ?? null
+  } catch (e: any) {
+    error.value = e?.message || 'rename failed'
+  }
+}
+
+function cancelRename() {
+  editingId.value = null
+  lockNav()
+}
+
+async function doDelete(j: Job) {
+  closeMenu()
+  try {
+    await api.deleteJob(j.id)
+    recent.value = recent.value.filter(x => x.id !== j.id)
+  } catch (e: any) {
+    error.value = e?.message || 'delete failed'
+  }
+}
+
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') { closeMenu(); editingId.value = null }
+}
 
 async function search() {
   if (!query.value.trim()) return
@@ -91,10 +184,17 @@ async function pick(c: Candidate) {
     <p v-if="error" class="error" style="margin-top:16px">{{ error }}</p>
 
     <div v-if="!searched && recent.length" class="recent">
-      <h2>Recent maps</h2>
-      <div v-for="j in recent" :key="j.id" class="job-row" @click="router.push(`/jobs/${j.id}`)">
-        <div>
-          <div>{{ (j.params as any).seed_id }}</div>
+      <h2>Recent maps <span class="muted" style="font-weight:400;font-size:13px">— right-click to rename or delete</span></h2>
+      <div
+        v-for="j in recent" :key="j.id" class="job-row"
+        @click="openJob(j)" @contextmenu.prevent="openMenu($event, j)"
+      >
+        <div class="job-main">
+          <input
+            v-if="editingId === j.id" :id="'rename-' + j.id" v-model="editName" class="rename-input"
+            @click.stop @keyup.enter="saveRename(j)" @keyup.esc="cancelRename" @blur="saveRename(j)"
+          />
+          <div v-else class="job-name" :title="fullLabel(j)">{{ mapLabel(j) }}</div>
           <div class="muted" style="font-size:12px">
             depth {{ (j.params as any).depth }} · {{ j.progress.nodes }} papers · {{ j.progress.status }}
           </div>
@@ -127,5 +227,15 @@ async function pick(c: Candidate) {
         </div>
       </div>
     </template>
+
+    <div
+      v-if="menu" class="ctx-menu"
+      :style="{ top: menu.y + 'px', left: menu.x + 'px' }"
+      @click.stop
+    >
+      <button class="ctx-item" @click="startRename(menu.job)">Rename</button>
+      <button v-if="!confirmingDelete" class="ctx-item danger" @click="confirmingDelete = true">Delete</button>
+      <button v-else class="ctx-item danger" @click="doDelete(menu.job)">Click again to confirm</button>
+    </div>
   </div>
 </template>

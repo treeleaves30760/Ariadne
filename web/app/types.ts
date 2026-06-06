@@ -32,6 +32,8 @@ export interface Job {
   progress: JobProgress
   created_at: string
   error?: string | null
+  name?: string | null         // user-assigned label (overrides seed_title)
+  seed_title?: string | null   // resolved seed paper title (default label)
 }
 
 export interface GraphNode {

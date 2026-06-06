@@ -70,12 +70,13 @@ h3 { font-size: 15px; margin: 16px 0 8px; }
 
 label { display: block; font-size: 13px; color: var(--text-dim); margin: 14px 0 6px; }
 
-input[type=text], select {
+input[type=text], input[type=password], input[type=email], input[type=url], input[type=search], select {
   width: 100%; padding: 12px 14px; font-size: 15px;
   background: var(--bg-3); color: var(--text);
   border: 1px solid var(--border); border-radius: 10px; outline: none;
 }
-input[type=text]:focus, select:focus { border-color: var(--accent); }
+input[type=text]:focus, input[type=password]:focus, input[type=email]:focus,
+input[type=url]:focus, input[type=search]:focus, select:focus { border-color: var(--accent); }
 
 .row { display: flex; gap: 14px; flex-wrap: wrap; }
 .row > * { flex: 1; min-width: 140px; }
@@ -112,6 +113,28 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 /* job page */
 .job-layout { display: grid; grid-template-columns: 1fr 360px; gap: 16px; align-items: start; }
 @media (max-width: 980px) { .job-layout { grid-template-columns: 1fr; } }
+
+/* map view: graph (left) + paper list / detail (right) */
+.map-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .map-layout { grid-template-columns: 1fr; } }
+.map-side { max-height: 690px; overflow: auto; }
+.map-side .backlink { display: inline-block; cursor: pointer; margin-bottom: 10px; }
+.map-side .backlink:hover { color: var(--text); }
+.list-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.list-head .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.list-head .seg button { background: var(--bg-2); color: var(--text-dim); border: none; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+.list-head .seg button.active { background: var(--bg-3); color: var(--text); }
+.sortbar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+.sortbar select { width: auto; padding: 4px 8px; font-size: 12px; }
+.pcards { display: flex; flex-direction: column; gap: 8px; }
+.pcard { border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; background: var(--bg-3); cursor: pointer; transition: border-color .12s; }
+.pcard:hover { border-color: var(--accent); }
+.pcard .pc-title { font-size: 14px; font-weight: 600; line-height: 1.35; }
+.pcard .pc-meta { font-size: 12px; margin-top: 3px; }
+.pcard .pc-sum { font-size: 13px; color: var(--text-dim); margin-top: 6px;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pcard .pc-links { display: flex; gap: 14px; margin-top: 7px; font-size: 12px; }
+.ptable tbody tr.row-active { background: var(--bg-3); box-shadow: inset 2px 0 0 var(--accent); }
 
 .progress-bar { height: 6px; background: var(--bg-3); border-radius: 999px; overflow: hidden; margin-top: 10px; }
 .progress-bar > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .4s; }
@@ -185,6 +208,16 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 .recent { margin-top: 30px; }
 .recent .job-row { display: flex; justify-content: space-between; gap: 12px; padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-2); margin-top: 8px; cursor: pointer; }
 .recent .job-row:hover { border-color: var(--accent); }
+.recent .job-main { min-width: 0; flex: 1; }
+.recent .job-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent .rename-input { width: 100%; padding: 5px 9px; font-size: 15px; background: var(--bg-3); color: var(--text); border: 1px solid var(--accent); border-radius: 7px; outline: none; }
+
+/* right-click context menu */
+.ctx-menu { position: fixed; z-index: 50; min-width: 172px; padding: 5px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.ctx-item { display: block; width: 100%; text-align: left; padding: 8px 12px; font-size: 14px; color: var(--text); background: none; border: none; border-radius: 7px; cursor: pointer; }
+.ctx-item:hover { background: var(--bg-3); }
+.ctx-item.danger { color: var(--danger); }
+.ctx-item.danger:hover { background: rgba(247,118,142,0.12); }
 
 .report .overview { font-size: 15px; }
 .cluster { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 12px; background: var(--bg-2); }
@@ -193,3 +226,37 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 .cluster li { margin: 4px 0; }
 .gaps li { margin: 5px 0; }
 .report-md :is(h1,h2,h3) { margin-top: 14px; }
+
+/* ---- graph legend swatches (round dots for nodes, bars for edges) ---- */
+.legend i.dot { width: 11px; height: 11px; border-radius: 50%; vertical-align: middle; }
+.legend i.grad { background: linear-gradient(90deg, #3a4665, #5b86d6, #b48cff); }
+.legend i.ring { background: #5b86d6; border: 1.5px solid #ffd479; box-sizing: border-box; }
+
+/* ---- collapsible status card ---- */
+.statuscard.collapsed { padding: 11px 17px; }
+.status-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.status-lead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.status-msg, .status-sum { font-size: 13px; }
+.status-actions { display: flex; gap: 8px; align-items: center; }
+.pill.ok { color: #7ee0b8; border-color: #2f6b53; }
+.pill.bad { color: #ff9bab; border-color: #7a3340; }
+.btn.sm { padding: 7px 12px; font-size: 13px; }
+.chev { background: var(--bg-3); color: var(--text-dim); border: 1px solid var(--border);
+  border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 14px; line-height: 1; }
+.chev:hover { color: var(--text); border-color: var(--accent); }
+
+/* ---- node-hover ⇄ list preview highlight ---- */
+.pcard.hover-active { border-color: var(--accent-2); background: var(--bg-2);
+  box-shadow: inset 0 0 0 1px var(--accent-2); }
+.ptable tbody tr.hover-active { background: var(--bg-3); box-shadow: inset 2px 0 0 var(--accent-2); }
+
+/* ---- denser job page (less empty space) ---- */
+.job-page h1 { font-size: 23px; margin: 6px 0 2px; }
+.job-page .card { padding: 15px 17px; }
+.job-page .tabs { margin: 14px 0 10px; }
+.job-page .stats { gap: 22px; margin-top: 10px; }
+.job-page .stat .n { font-size: 19px; }
+.job-page #cy { height: 660px; }
+.job-page .map-side { max-height: 700px; }
+.job-page .pcard { padding: 9px 11px; }
+.job-page .pcard .pc-sum { -webkit-line-clamp: 3; line-clamp: 3; }
