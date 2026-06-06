@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -130,28 +131,33 @@ class CodexClient:
         if self.api_base:
             env["OPENAI_BASE_URL"] = self.api_base
 
+        def _run() -> subprocess.CompletedProcess[bytes]:
+            # Synchronous subprocess in a worker thread, on purpose: it works no
+            # matter which asyncio event loop is running. On Windows the asyncio
+            # SelectorEventLoop cannot create subprocesses (it raises a bare
+            # NotImplementedError), and servers like uvicorn may install it — so we
+            # never spawn from the loop itself. Passing `input=` closes stdin (EOF)
+            # so `codex exec` won't hang waiting for more input.
+            return subprocess.run(
+                args,
+                input=prompt.encode("utf-8"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                timeout=self.timeout,
+            )
+
         async with self._sem:
             self._calls += 1
             try:
-                proc = await asyncio.create_subprocess_exec(
-                    *args,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
                 try:
-                    stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(prompt.encode("utf-8")), timeout=self.timeout
-                    )
-                except asyncio.TimeoutError as exc:
-                    proc.kill()
-                    await proc.wait()
+                    proc = await asyncio.to_thread(_run)
+                except subprocess.TimeoutExpired as exc:
                     raise CodexError(f"codex timed out after {self.timeout}s") from exc
 
                 if proc.returncode != 0:
                     raise CodexError(
-                        f"codex exited {proc.returncode}: {stderr.decode('utf-8', 'replace')[:500]}"
+                        f"codex exited {proc.returncode}: {proc.stderr.decode('utf-8', 'replace')[:500]}"
                     )
 
                 if out_file.exists():
@@ -159,6 +165,6 @@ class CodexClient:
                     if raw:
                         return _extract_json(raw)
                 # fall back to stdout if the output file was empty
-                return _extract_json(stdout.decode("utf-8", "replace"))
+                return _extract_json(proc.stdout.decode("utf-8", "replace"))
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)

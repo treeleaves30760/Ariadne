@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -32,23 +33,14 @@ def test_extract_json_with_noise():
 
 
 # ------------------------- codex client (faked) -------------------------- #
-class _FakeProc:
-    def __init__(self, out_path: Path, payload: dict, returncode: int = 0):
-        self._out_path = out_path
-        self._payload = payload
-        self.returncode = returncode
-
-    async def communicate(self, _input: bytes):
-        self._out_path.write_text(json.dumps(self._payload), encoding="utf-8")
-        return b"", b""
-
-
 def _patch_exec(monkeypatch, payload: dict, returncode: int = 0):
-    async def fake_exec(*args, **kwargs):
+    """Fake the synchronous subprocess.run the client now calls via asyncio.to_thread."""
+    def fake_run(args, **kwargs):
         out_path = Path(args[args.index("-o") + 1])
-        return _FakeProc(out_path, payload, returncode)
+        out_path.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(args, returncode, stdout=b"", stderr=b"")
 
-    monkeypatch.setattr("app.ai.codex_client.asyncio.create_subprocess_exec", fake_exec)
+    monkeypatch.setattr("app.ai.codex_client.subprocess.run", fake_run)
 
 
 async def test_run_structured_reads_output_file(monkeypatch):
