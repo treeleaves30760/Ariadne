@@ -28,6 +28,18 @@ class AskRequest(BaseModel):
     use_tools: bool = True   # let the assistant search the web + read PDFs to verify
 
 
+class RenameRequest(BaseModel):
+    name: str
+
+
+async def _with_seed_title(db: Database, job: Job) -> Job:
+    """Attach the seed paper's title (used as the default map label) when known."""
+    paper = await db.get_paper(job.params.seed_id)
+    if paper:
+        job.seed_title = paper.title
+    return job
+
+
 async def _load_corpus(db: Database, job_id: str):
     """Return (rows, papers_by_id, summaries_by_id) for a job."""
     rows = await db.job_papers(job_id)
@@ -45,7 +57,10 @@ async def _load_corpus(db: Database, job_id: str):
 
 @router.get("", response_model=list[Job])
 async def list_jobs(db: Database = Depends(get_database)):
-    return await db.list_jobs()
+    jobs = await db.list_jobs()
+    for job in jobs:
+        await _with_seed_title(db, job)
+    return jobs
 
 
 @router.post("", response_model=Job)
@@ -60,7 +75,24 @@ async def get_job(job_id: str, db: Database = Depends(get_database)):
     job = await db.get_job(job_id)
     if not job:
         raise HTTPException(404, "job not found")
-    return job
+    return await _with_seed_title(db, job)
+
+
+@router.patch("/{job_id}", response_model=Job)
+async def rename_job(job_id: str, req: RenameRequest, db: Database = Depends(get_database)):
+    """Set a custom label for a map (blank clears it, reverting to the seed title)."""
+    if not await db.rename_job(job_id, req.name.strip() or None):
+        raise HTTPException(404, "job not found")
+    job = await db.get_job(job_id)
+    return await _with_seed_title(db, job)
+
+
+@router.delete("/{job_id}")
+async def delete_job(job_id: str, db: Database = Depends(get_database)):
+    """Permanently delete a map and all its data (papers, edges, reports, summaries, Q&A)."""
+    if not await db.delete_job(job_id):
+        raise HTTPException(404, "job not found")
+    return {"ok": True}
 
 
 @router.get("/{job_id}/events")

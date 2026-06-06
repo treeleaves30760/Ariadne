@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     params      TEXT NOT NULL,
     progress    TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    error       TEXT
+    error       TEXT,
+    name        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS summaries (
@@ -104,7 +105,17 @@ class Database:
         conn.row_factory = aiosqlite.Row
         await conn.executescript(SCHEMA)
         await conn.commit()
-        return cls(conn)
+        db = cls(conn)
+        await db._migrate()
+        return db
+
+    async def _migrate(self) -> None:
+        """Additive, idempotent migrations for DBs created before a column existed."""
+        cur = await self._conn.execute("PRAGMA table_info(jobs)")
+        cols = {r["name"] for r in await cur.fetchall()}
+        if "name" not in cols:
+            await self._conn.execute("ALTER TABLE jobs ADD COLUMN name TEXT")
+            await self._conn.commit()
 
     async def close(self) -> None:
         await self._conn.close()
@@ -171,13 +182,15 @@ class Database:
     # ------------------------------- jobs -------------------------------- #
     async def create_job(self, job: Job) -> None:
         await self._conn.execute(
-            "INSERT INTO jobs (id, params, progress, created_at, error) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO jobs (id, params, progress, created_at, error, name)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
             (
                 job.id,
                 job.params.model_dump_json(),
                 job.progress.model_dump_json(),
                 job.created_at,
                 job.error,
+                job.name,
             ),
         )
         await self._conn.commit()
@@ -188,6 +201,22 @@ class Database:
             (job.progress.model_dump_json(), job.error, job.id),
         )
         await self._conn.commit()
+
+    async def rename_job(self, job_id: str, name: str | None) -> bool:
+        """Set (or clear, when name is None) a job's custom label. False if no such job."""
+        cur = await self._conn.execute(
+            "UPDATE jobs SET name = ? WHERE id = ?", (name, job_id)
+        )
+        await self._conn.commit()
+        return cur.rowcount > 0
+
+    async def delete_job(self, job_id: str) -> bool:
+        """Permanently delete a job and all rows that reference it. False if no such job."""
+        cur = await self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        for tbl in ("job_papers", "edges", "summaries", "reports", "qa"):
+            await self._conn.execute(f"DELETE FROM {tbl} WHERE job_id = ?", (job_id,))
+        await self._conn.commit()
+        return cur.rowcount > 0
 
     async def get_job(self, job_id: str) -> Job | None:
         cur = await self._conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
@@ -200,6 +229,7 @@ class Database:
             progress=JobProgress.model_validate_json(row["progress"]),
             created_at=row["created_at"],
             error=row["error"],
+            name=row["name"],
         )
 
     # ----------------------------- summaries ----------------------------- #
@@ -280,6 +310,7 @@ class Database:
                 progress=JobProgress.model_validate_json(row["progress"]),
                 created_at=row["created_at"],
                 error=row["error"],
+                name=row["name"],
             ))
         return jobs
 

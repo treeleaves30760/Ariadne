@@ -112,6 +112,52 @@ async def test_list_jobs(populated_db):
         assert any(j["id"] == "job1" for j in jobs)
 
 
+async def test_list_jobs_includes_seed_title(populated_db):
+    with _client(populated_db) as client:
+        jobs = client.get("/jobs").json()
+        job1 = next(j for j in jobs if j["id"] == "job1")
+        assert job1["seed_title"] == "Seed"
+
+
+async def test_rename_job(populated_db):
+    with _client(populated_db) as client:
+        resp = client.patch("/jobs/job1", json={"name": "My favourite map"})
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "My favourite map"
+        # persisted across a fresh read
+        job1 = next(j for j in client.get("/jobs").json() if j["id"] == "job1")
+        assert job1["name"] == "My favourite map"
+
+
+async def test_rename_job_blank_clears_name(populated_db):
+    with _client(populated_db) as client:
+        client.patch("/jobs/job1", json={"name": "Temp"})
+        resp = client.patch("/jobs/job1", json={"name": "   "})
+        assert resp.status_code == 200
+        assert resp.json()["name"] is None
+
+
+async def test_rename_missing_job_404(populated_db):
+    with _client(populated_db) as client:
+        assert client.patch("/jobs/nope", json={"name": "x"}).status_code == 404
+
+
+async def test_delete_job_removes_job_and_data(populated_db):
+    with _client(populated_db) as client:
+        assert client.delete("/jobs/job1").status_code == 200
+        # the job itself is gone
+        assert client.get("/jobs/job1").status_code == 404
+        assert all(j["id"] != "job1" for j in client.get("/jobs").json())
+        # and its associated rows (papers, edges, reports, summaries) are gone too
+        assert client.get("/jobs/job1/graph").json()["nodes"] == []
+        assert client.get("/jobs/job1/reports").json()["levels"] == []
+
+
+async def test_delete_missing_job_404(populated_db):
+    with _client(populated_db) as client:
+        assert client.delete("/jobs/nope").status_code == 404
+
+
 async def test_ask_endpoint(populated_db, monkeypatch):
     from app.models import QAResult
 

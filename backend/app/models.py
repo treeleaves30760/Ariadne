@@ -120,6 +120,8 @@ class Job(BaseModel):
     progress: JobProgress = Field(default_factory=JobProgress)
     created_at: str
     error: str | None = None
+    name: str | None = None        # user-assigned label; overrides the seed title in lists
+    seed_title: str | None = None  # resolved seed paper title; filled on read, not persisted
 
 
 # --------------------------------------------------------------------------- #
