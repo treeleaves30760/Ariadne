@@ -35,7 +35,7 @@ async def fetch_pdf_text(url: str, *, max_chars: int = 6000, timeout: float = 25
         return None
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": "PaperConnector/1.0"})
+            resp = await client.get(url, headers={"User-Agent": "Ariadne/1.0"})
             if resp.status_code != 200:
                 return None
             ctype = resp.headers.get("content-type", "")

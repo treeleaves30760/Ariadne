@@ -1,5 +1,5 @@
 [project]
-name = "paper-connector-backend"
+name = "ariadne-backend"
 version = "0.1.0"
 description = "Citation-graph builder with Codex-powered relevance filtering and progressive reports"
 readme = "README.md"

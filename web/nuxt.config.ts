@@ -9,7 +9,7 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
-      title: 'Paper Connector',
+      title: 'Ariadne — AI-built citation maps',
       meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }],
     },
   },
