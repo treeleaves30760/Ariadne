@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="Ariadne">
+  <g stroke="#6366f1" stroke-width="1.6" stroke-linecap="round">
+    <line x1="16" y1="16" x2="6.5" y2="7.5" />
+    <line x1="16" y1="16" x2="25.5" y2="9" />
+    <line x1="16" y1="16" x2="22" y2="25.5" />
+    <line x1="16" y1="16" x2="7.5" y2="23.5" />
+  </g>
+  <circle cx="16" cy="16" r="4.2" fill="#4f46e5" />
+  <circle cx="6.5" cy="7.5" r="2.6" fill="#818cf8" />
+  <circle cx="25.5" cy="9" r="2.6" fill="#818cf8" />
+  <circle cx="22" cy="25.5" r="2.6" fill="#a5b4fc" />
+  <circle cx="7.5" cy="23.5" r="2.4" fill="#a5b4fc" />
+</svg>

@@ -1,0 +1,35 @@
+/**
+ * Global styles. The classic template bundles Infima (a content-centric CSS
+ * framework). Brand palette: indigo (matches the Ariadne app).
+ */
+
+:root {
+  --ifm-color-primary: #4f46e5;
+  --ifm-color-primary-dark: #4338ca;
+  --ifm-color-primary-darker: #3f35c0;
+  --ifm-color-primary-darkest: #342aa0;
+  --ifm-color-primary-light: #6366f1;
+  --ifm-color-primary-lighter: #7376f3;
+  --ifm-color-primary-lightest: #a5b4fc;
+  --ifm-code-font-size: 95%;
+  --ifm-heading-font-weight: 700;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* Lighter indigo for readability on dark backgrounds. */
+[data-theme='dark'] {
+  --ifm-color-primary: #818cf8;
+  --ifm-color-primary-dark: #6b75f5;
+  --ifm-color-primary-darker: #5f6af4;
+  --ifm-color-primary-darkest: #4b57f2;
+  --ifm-color-primary-light: #97a0fa;
+  --ifm-color-primary-lighter: #a3abfb;
+  --ifm-color-primary-lightest: #c7ccfd;
+  --ifm-background-color: #0f1117;
+  --ifm-background-surface-color: #181b24;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+.navbar {
+  backdrop-filter: saturate(160%) blur(8px);
+}

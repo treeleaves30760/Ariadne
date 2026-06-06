@@ -1,0 +1,50 @@
+{
+  "homepage.tagline": {
+    "message": "AI 自動建構引用圖譜，讓你一篇關鍵論文都不漏。"
+  },
+  "homepage.subtitle": {
+    "message": "從一篇論文或 benchmark 出發，雙向展開引用圖，讓 OpenAI Codex CLI 對每一層做相關性篩選，再以互動圖與漸進報告探索結果。"
+  },
+  "homepage.cta.start": {
+    "message": "開始使用 →"
+  },
+  "homepage.cta.overview": {
+    "message": "總覽"
+  },
+  "feature.graph.title": {
+    "message": "雙向引用圖"
+  },
+  "feature.graph.desc": {
+    "message": "從單一種子論文或 benchmark 出發，雙向展開 references（往前）與 citations（往後），深度 3–5。"
+  },
+  "feature.ai.title": {
+    "message": "AI 相關性篩選"
+  },
+  "feature.ai.desc": {
+    "message": "OpenAI Codex CLI 對每一層評分相關性並撰寫簡短說明，只保留真正重要的論文。"
+  },
+  "feature.reports.title": {
+    "message": "漸進式報告"
+  },
+  "feature.reports.desc": {
+    "message": "第 3、4、5 層各出一份報告、最後一份綜合報告，另加 DuckDuckGo Web 補充報告，補上綜述與近期工作。"
+  },
+  "feature.ask.title": {
+    "message": "向文獻提問"
+  },
+  "feature.ask.desc": {
+    "message": "帶工具的 chatbot 以你的語料庫為根據作答並附可點擊引用，必要時用網路搜尋與開放取用 PDF 驗證。"
+  },
+  "feature.rank.title": {
+    "message": "重要性排名"
+  },
+  "feature.rank.desc": {
+    "message": "以重要性分數（relevance × 被引用數 × 頂會）在可排序表格中排序，並標記頂會論文。"
+  },
+  "feature.explore.title": {
+    "message": "探索與匯出"
+  },
+  "feature.explore.desc": {
+    "message": "易讀的 Cytoscape 圖含每篇 AI 說明與即時活動串流；可將閱讀清單匯出為 BibTeX 或 Markdown。"
+  }
+}

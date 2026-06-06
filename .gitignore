@@ -28,3 +28,10 @@ web/dist/
 
 # Codex scratch
 .codex_tmp/
+
+# Docusaurus build output
+docs/build/
+docs/.docusaurus/
+
+# Design specs are local-only, never committed
+docs/superpowers/

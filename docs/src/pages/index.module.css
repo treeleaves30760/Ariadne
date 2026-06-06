@@ -1,0 +1,64 @@
+/**
+ * Homepage hero styles (scoped CSS module).
+ */
+
+.hero {
+  position: relative;
+  padding: 5rem 0 4.5rem;
+  text-align: center;
+  overflow: hidden;
+  background:
+    radial-gradient(1100px 480px at 50% -12%, rgba(99, 102, 241, 0.28), transparent 70%),
+    linear-gradient(180deg, var(--ifm-background-surface-color), var(--ifm-background-color));
+  border-bottom: 1px solid var(--ifm-toc-border-color);
+}
+
+.heroInner {
+  max-width: 820px;
+}
+
+.heroTitle {
+  font-size: clamp(2.6rem, 6vw, 4rem);
+  letter-spacing: -0.03em;
+  margin-bottom: 0.75rem;
+  background: linear-gradient(
+    90deg,
+    var(--ifm-color-primary-lightest),
+    var(--ifm-color-primary)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.heroTagline {
+  font-size: clamp(1.15rem, 2.4vw, 1.5rem);
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.heroSubtitle {
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: var(--ifm-color-emphasis-700);
+  margin: 0 auto 2rem;
+  max-width: 680px;
+}
+
+.buttons {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.ghButton {
+  --ifm-button-border-color: var(--ifm-color-emphasis-400);
+}
+
+@media screen and (max-width: 768px) {
+  .hero {
+    padding: 3rem 1rem 2.5rem;
+  }
+}
