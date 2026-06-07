@@ -99,12 +99,14 @@ class CodexClient:
         out_file = tmpdir / "out.json"
         schema_file.write_text(json.dumps(schema), encoding="utf-8")
 
-        args = [
-            self.bin,
-            "exec",
-            "--skip-git-repo-check",
-            "-s",
-            "read-only",
+        args = [self.bin, "exec", "--skip-git-repo-check"]
+        if self.settings.codex_bypass_sandbox:
+            # The container is the isolation boundary; Codex's Landlock/seccomp
+            # sandbox can't initialize inside Docker, so bypass it there.
+            args.append("--dangerously-bypass-approvals-and-sandbox")
+        else:
+            args += ["-s", "read-only"]
+        args += [
             "--ephemeral",
             "--color",
             "never",
