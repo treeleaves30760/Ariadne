@@ -148,7 +148,7 @@ class GraphExpander:
             new_frontier: list[Paper] = []
             for s in kept:
                 paper = by_id.get(s.paper_id)
-                if not paper:
+                if not paper:  # pragma: no cover - score_relevance only returns scored candidate ids
                     continue
                 await self._record_node(paper, level, s.relevance, s.reason)
                 kept_ids.add(paper.id)
