@@ -1,0 +1,56 @@
+name: ariadne
+
+# No-build deployment: `docker compose up -d` pulls prebuilt images from GHCR.
+# (A git checkout also has compose.override.yaml, which adds `build:` so
+#  `docker compose up -d --build` builds from source instead of pulling.)
+#
+# Needs Docker Compose v2.23+ (inline `configs` content). After starting:
+#   docker compose exec backend codex login --device-auth
+#   open http://localhost:8080
+
+configs:
+  caddyfile:
+    content: |
+      :8080 {
+          handle_path /api/* {
+              reverse_proxy backend:8008 {
+                  flush_interval -1
+              }
+          }
+          handle {
+              reverse_proxy web:3000
+          }
+      }
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "${PUBLIC_PORT:-8080}:8080"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - web
+      - backend
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/treeleaves30760/ariadne-backend:latest
+    environment:
+      PC_CODEX_BYPASS_SANDBOX: "1"
+      PC_DB_PATH: /data/paper_connector.db
+      PC_OPENALEX_EMAIL: "${PC_OPENALEX_EMAIL:-}"
+      PC_SEMANTIC_SCHOLAR_API_KEY: "${PC_SEMANTIC_SCHOLAR_API_KEY:-}"
+    volumes:
+      - codex_home:/home/app/.codex
+      - app_db:/data
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/treeleaves30760/ariadne-web:latest
+    restart: unless-stopped
+
+volumes:
+  codex_home:
+  app_db:
