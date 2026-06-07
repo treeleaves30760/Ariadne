@@ -34,7 +34,24 @@ web/       Nuxt frontend (Vue 3, TypeScript) — input, graph, reports
 docs/      Docusaurus site (English + 繁體中文)
 ```
 
-## Quick start
+## Run with Docker (no build)
+
+Run the whole stack with prebuilt images — no clone, no build:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/treeleaves30760/Ariadne/main/compose.yaml -o compose.yaml
+docker compose up -d
+docker compose exec backend codex login --device-auth   # one-time, your ChatGPT account
+# open http://localhost:8080
+```
+
+Needs Docker (Compose v2.23+). The only required step is the one-time `codex login` — each
+user signs in with their own ChatGPT subscription. Optional: put `PC_OPENALEX_EMAIL=...` in a
+`.env` beside `compose.yaml` (OpenAlex polite pool); change the port with
+`PUBLIC_PORT=9000 docker compose up -d`. To build from source instead:
+`git clone … && cd Ariadne && docker compose up -d --build`.
+
+## Quick start (from source)
 
 ```bash
 # Backend (use --port 8008 if 8000 is taken)
@@ -59,7 +76,7 @@ Full install / run / feature walkthrough: **[Documentation](https://treeleaves30
 ## Tests
 
 ```bash
-cd backend && uv run pytest        # 52 tests
+cd backend && uv run pytest        # 142 tests, 100% coverage (enforced)
 cd web && npm run build            # frontend production build
 ```
 

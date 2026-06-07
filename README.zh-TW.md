@@ -30,7 +30,23 @@ web/       Nuxt 前端 (Vue 3, TypeScript) — 輸入、圖、報告
 docs/      Docusaurus 文件站(English + 繁體中文)
 ```
 
-## 快速開始
+## 用 Docker 開起來(免 build)
+
+用預建 image 一次把整套開起來 —— 不必 clone、不必 build:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/treeleaves30760/Ariadne/main/compose.yaml -o compose.yaml
+docker compose up -d
+docker compose exec backend codex login --device-auth   # 一次性,用你自己的 ChatGPT 帳號
+# 開 http://localhost:8080
+```
+
+需要 Docker(Compose v2.23+)。唯一必要步驟是一次性的 `codex login` —— 每位使用者各自用
+自己的 ChatGPT 訂閱登入。選填:在 `compose.yaml` 旁放 `.env` 設 `PC_OPENALEX_EMAIL=...`
+(OpenAlex polite pool);改埠口用 `PUBLIC_PORT=9000 docker compose up -d`。要從原始碼建:
+`git clone … && cd Ariadne && docker compose up -d --build`。
+
+## 快速開始(從原始碼)
 
 ```bash
 # 後端(8000 被佔用時改用 --port 8008)
@@ -55,7 +71,7 @@ npm run dev                 # 開 http://localhost:3000
 ## 測試
 
 ```bash
-cd backend && uv run pytest        # 52 個測試
+cd backend && uv run pytest        # 142 個測試,100% 覆蓋率(強制)
 cd web && npm run build            # 前端 production build
 ```
 

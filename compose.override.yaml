@@ -1,0 +1,9 @@
+# Developer override — auto-merged by `docker compose` in a git checkout.
+# Builds the images from source instead of pulling from GHCR:
+#   docker compose up -d --build
+# General users who only downloaded compose.yaml don't have this file, so they pull.
+services:
+  backend:
+    build: ./backend
+  web:
+    build: ./web

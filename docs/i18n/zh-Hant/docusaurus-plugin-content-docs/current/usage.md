@@ -23,7 +23,24 @@ sidebar_position: 2
 
 ## 2. 安裝與啟動
 
-### 後端
+### 用 Docker(免 build)
+
+用預建 image 把整套開起來 —— 不必 clone、不必 build:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/treeleaves30760/Ariadne/main/compose.yaml -o compose.yaml
+docker compose up -d
+docker compose exec backend codex login --device-auth   # 一次性,用你自己的 ChatGPT 帳號
+# 開 http://localhost:8080
+```
+
+需要 Docker(Compose v2.23+)。Caddy 反向代理把 UI 與 API 收在**同一個來源**
+(`http://localhost:8080`),所以沒有別的要設定 —— 唯一必要步驟是一次性的 `codex login`
+(每位使用者各自用自己的 ChatGPT 訂閱登入)。選填:在 `compose.yaml` 旁放 `.env` 設
+`PC_OPENALEX_EMAIL`(OpenAlex polite pool)、用 `PUBLIC_PORT` 改埠。開發者從原始碼建:
+`git clone … && cd Ariadne && docker compose up -d --build`。
+
+### 後端(從原始碼)
 
 ```bash
 cd backend
@@ -150,7 +167,7 @@ npm run dev                   # 開 http://localhost:3000
 ## 8. 測試
 
 ```bash
-cd backend && uv run pytest      # 52 個測試
+cd backend && uv run pytest      # 142 個測試,100% 覆蓋率
 cd web && npm run build          # 前端 production build
 ```
 

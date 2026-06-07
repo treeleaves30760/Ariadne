@@ -23,7 +23,25 @@ How to install, run, and use every feature of Ariadne.
 
 ## 2. Install & run
 
-### Backend
+### With Docker (no build)
+
+Run everything with prebuilt images — no clone, no build:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/treeleaves30760/Ariadne/main/compose.yaml -o compose.yaml
+docker compose up -d
+docker compose exec backend codex login --device-auth   # one-time, your ChatGPT account
+# open http://localhost:8080
+```
+
+Needs Docker (Compose v2.23+). A Caddy reverse proxy serves the UI and the API on **one
+origin** (`http://localhost:8080`), so there is nothing else to configure — the only required
+step is the one-time `codex login` (each user signs in with their own ChatGPT subscription).
+Optional: set `PC_OPENALEX_EMAIL` in a `.env` next to `compose.yaml` (OpenAlex polite pool),
+and change the port with `PUBLIC_PORT`. Developers building from source:
+`git clone … && cd Ariadne && docker compose up -d --build`.
+
+### Backend (from source)
 
 ```bash
 cd backend
@@ -162,7 +180,7 @@ external responses are cached in `api_cache` to avoid re-fetching.
 ## 8. Tests
 
 ```bash
-cd backend && uv run pytest      # 52 tests
+cd backend && uv run pytest      # 142 tests, 100% coverage
 cd web && npm run build          # frontend production build
 ```
 
