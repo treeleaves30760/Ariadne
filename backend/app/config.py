@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     codex_model: str | None = None
     codex_concurrency: int = 3
     codex_timeout_s: float = 240.0
+    codex_bypass_sandbox: bool = False  # PC_CODEX_BYPASS_SANDBOX; set 1 in containers
 
     # --- Graph expansion defaults (loose preset) ---
     default_depth: int = 3
