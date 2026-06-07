@@ -119,3 +119,129 @@ async def test_expander_writes_summaries(db):
     await _run(db)
     s = await db.get_summary("job1", "r1")
     assert s is not None and s.text == "sum r1"
+
+
+# ----------------------- edge-case branch coverage ----------------------- #
+async def _run_with(db, *, emit=None, web=False, depth=3, max_nodes=600,
+                    max_candidates=200, codex=None):
+    settings = Settings(max_nodes=max_nodes, per_level_k=80, relevance_threshold=0.25,
+                        max_codex_calls=200, web_search_enabled=web,
+                        max_candidates_per_level=max_candidates)
+    params = JobParams(seed_id="seed", depth=depth, per_level_k=80)
+    exp = GraphExpander("job1", SEED, params, library=FakeLibrary(),
+                        codex=codex or FakeCodex(), db=db, settings=settings, emit=emit)
+    await exp.run()
+    return exp
+
+
+async def test_expander_invokes_emit_callback(db):
+    seen: list[str] = []
+
+    async def emit(e):
+        seen.append(e.get("type"))
+
+    await _run_with(db, emit=emit)
+    assert "progress" in seen and "report_ready" in seen
+
+
+async def test_expander_generates_web_report(db, monkeypatch):
+    import app.ai.report as report_mod
+    from app.ai.websearch import SearchResult
+
+    async def fake_many(queries, max_results=5):
+        return [SearchResult(title="S", url="https://s", snippet="x")]
+
+    monkeypatch.setattr(report_mod, "search_many", fake_many)
+    await _run_with(db, web=True)
+    assert "web" in await db.list_reports("job1")
+
+
+class BudgetCodex(FakeCodex):
+    """Succeeds `fail_after` times, then raises CodexBudgetExceeded."""
+
+    def __init__(self, fail_after=0):
+        super().__init__()
+        self.fail_after = fail_after
+
+    async def run_structured(self, prompt, schema, *, model=None):
+        from app.ai.codex_client import CodexBudgetExceeded
+        if self._calls >= self.fail_after:
+            raise CodexBudgetExceeded("budget")
+        return await super().run_structured(prompt, schema, model=model)
+
+
+async def test_expander_handles_budget_exhaustion(db):
+    # 1st call (relevance) ok; 2nd (summaries) raises; later scoring/report also raise.
+    exp = await _run_with(db, codex=BudgetCodex(fail_after=1))
+    assert any("budget" in n for n in exp.notes)
+
+
+async def test_expander_prefilters_when_over_cap(db):
+    exp = await _run_with(db, depth=1, max_candidates=1)
+    assert any("prefiltered" in n for n in exp.notes)
+
+
+async def test_expander_stops_when_no_new_candidates(db):
+    # r1b is discovered at level 3; level 4's frontier yields nothing new.
+    # This path only emits a note event (it isn't appended to exp.notes), so capture emits.
+    notes: list[str] = []
+
+    async def emit(e):
+        if e.get("type") == "note":
+            notes.append(e.get("message", ""))
+
+    await _run_with(db, depth=5, emit=emit)
+    assert any("no new candidates" in n for n in notes)
+
+
+class _WebBudgetCodex(FakeCodex):
+    """Succeeds for every call except the web-report one (schema with `sources`)."""
+
+    async def run_structured(self, prompt, schema, *, model=None):
+        from app.ai.codex_client import CodexBudgetExceeded
+        if "sources" in schema.get("properties", {}):
+            raise CodexBudgetExceeded("budget")
+        return await FakeCodex.run_structured(self, prompt, schema, model=model)
+
+
+async def test_expander_web_report_budget_exhausted(db, monkeypatch):
+    import app.ai.report as report_mod
+    from app.ai.websearch import SearchResult
+
+    async def fake_many(queries, max_results=5):
+        return [SearchResult(title="S", url="https://s", snippet="x")]
+
+    monkeypatch.setattr(report_mod, "search_many", fake_many)
+    exp = await _run_with(db, web=True, codex=_WebBudgetCodex())
+    assert any("web report" in n for n in exp.notes)
+
+
+class _OneLowNode:
+    async def get_neighbors(self, canonical, direction, limit, ext=None):
+        if canonical == "seed" and direction == "reference":
+            return [P("lowrel", cites=1)]
+        return []
+
+
+class _AllLowCodex(FakeCodex):
+    async def run_structured(self, prompt, schema, *, model=None):
+        self._calls += 1
+        props = schema.get("properties", {})
+        if "overview" in props:
+            return {"overview": "o", "clusters": [], "must_reads": [], "gaps": []}
+        ids = re.findall(r"id:\s*(\S+)", prompt)
+        item_props = props.get("results", {}).get("items", {}).get("properties", {})
+        if "relevance" in item_props:
+            return {"results": [{"paper_id": i, "relevance": 0.0, "reason": "x"} for i in ids]}
+        return {"results": []}
+
+
+async def test_expander_breaks_when_nothing_kept(db):
+    settings = Settings(max_nodes=600, per_level_k=80, relevance_threshold=0.25,
+                        max_codex_calls=200, web_search_enabled=False)
+    params = JobParams(seed_id="seed", depth=3, per_level_k=80)
+    exp = GraphExpander("job1", SEED, params, library=_OneLowNode(), codex=_AllLowCodex(),
+                        db=db, settings=settings)
+    await exp.run()
+    rows = await db.job_papers("job1")
+    assert {r["paper_id"] for r in rows} == {"seed"}  # everything scored below threshold

@@ -46,3 +46,25 @@ def test_to_markdown_structure():
     assert "## Must-read" in md
     assert "Key paper." in md
     assert "### Level 1" in md
+
+
+def test_to_bibtex_venue_and_eprint():
+    p = Paper(id="x", title="T", year=2020, venue="NeurIPS",
+              authors=[Author(name="A B")], external_ids=ExternalIds(arxiv="1234.5678"))
+    bib = to_bibtex([p])
+    assert "journal = {NeurIPS}" in bib
+    assert "eprint = {1234.5678}" in bib
+
+
+def test_to_bibtex_empty_list():
+    assert to_bibtex([]) == ""
+
+
+def test_to_markdown_truncates_authors_with_et_al():
+    seed = _p("10/seed", "Seed", 2017, "Author", doi="10/seed")
+    many = Paper(id="10/m", title="Many Authors", year=2020,
+                 authors=[Author(name=n) for n in ["A", "B", "C", "D"]],
+                 external_ids=ExternalIds(doi="10/m"))
+    rows = [{"paper_id": "10/m", "level": 1, "relevance": 0.5, "reason": ""}]
+    md = to_markdown(seed, rows, {"10/m": many}, {}, None)  # no final report
+    assert "et al." in md
