@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # (e.g. rate-limited, keyless Semantic Scholar) can't stall the whole search.
     search_timeout_s: float = 8.0
 
+    # Logging verbosity for the `app` logger namespace (DEBUG/INFO/WARNING/...).
+    log_level: str = "INFO"
+
     # --- Web search (DuckDuckGo) for report enrichment ---
     web_search_enabled: bool = True
     web_search_max_results: int = 5

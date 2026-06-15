@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.jobs.manager import JobManager
+from app.logging_config import configure_logging
 from app.services.library import PaperLibrary
 from app.storage.db import close_db, get_db
 
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_logging(settings.log_level)
     app = FastAPI(title="Ariadne", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(

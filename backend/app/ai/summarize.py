@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from app.ai.codex_client import CodexClient
 from app.ai.relevance import seed_profile
 from app.models import Paper, Summary
+
+log = logging.getLogger(__name__)
 
 LANGUAGE_NAMES = {"en": "English", "zh": "Traditional Chinese", "bilingual": "Traditional Chinese followed by key English terms in parentheses"}
 
@@ -51,13 +56,19 @@ async def summarize_papers(
     codex: CodexClient, seed: Paper, papers: list[Paper], language: str = "en",
     batch_size: int = 12,
 ) -> list[Summary]:
-    out: list[Summary] = []
+    """Summarize papers in concurrent batches (Codex's semaphore bounds parallelism)."""
     by_id = {p.id for p in papers}
-    for i in range(0, len(papers), batch_size):
-        batch = papers[i : i + batch_size]
-        prompt = build_prompt(seed, batch, language)
-        data = await codex.run_structured(prompt, SUMMARY_SCHEMA)
-        for item in (data or {}).get("results", []):
+    batches = [papers[i : i + batch_size] for i in range(0, len(papers), batch_size)]
+    log.info("summarizing: %d papers in %d batch(es)", len(papers), len(batches))
+
+    async def run_batch(batch: list[Paper]) -> list[dict]:
+        data = await codex.run_structured(build_prompt(seed, batch, language), SUMMARY_SCHEMA)
+        return (data or {}).get("results", []) or []
+
+    batched = await asyncio.gather(*(run_batch(b) for b in batches))
+    out: list[Summary] = []
+    for items in batched:
+        for item in items:
             pid = item.get("paper_id")
             if pid in by_id and item.get("summary"):
                 out.append(Summary(paper_id=pid, text=item["summary"], language=language))

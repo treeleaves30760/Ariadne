@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -12,6 +13,8 @@ from app.graph.expander import GraphExpander
 from app.models import Job, JobParams, JobProgress, JobStatus
 from app.services.library import PaperLibrary
 from app.storage.db import Database
+
+log = logging.getLogger(__name__)
 
 TERMINAL = {JobStatus.completed, JobStatus.failed}
 
@@ -57,6 +60,15 @@ class JobManager:
         self._tasks[job_id] = task
         task.add_done_callback(lambda t: self._tasks.pop(job_id, None))
 
+    def is_running(self, job_id: str) -> bool:
+        """True while the background task for this job is still executing.
+
+        Lets the SSE stream tell "still generating" (quiet but alive) apart from
+        "the worker is gone" (e.g. a process restart) during long event gaps.
+        """
+        task = self._tasks.get(job_id)
+        return task is not None and not task.done()
+
     async def _run(self, job_id: str) -> None:
         job = await self.db.get_job(job_id)
         if not job:
@@ -79,6 +91,12 @@ class JobManager:
                 p.edges += event["edges"]
             if "codex_calls" in event:
                 p.codex_calls = event["codex_calls"]
+            if event.get("phase"):
+                p.phase = event["phase"]
+            if "elapsed_s" in event:
+                p.elapsed_s = event["elapsed_s"]
+            if event.get("timings"):
+                p.timings = event["timings"]
             if event.get("message"):
                 p.message = event["message"]
             if t == "note" and event.get("message"):
@@ -92,7 +110,9 @@ class JobManager:
                 if lvl not in p.reports_available:
                     p.reports_available.append(lvl)
             await self.db.update_job(job)
-            await self._publish(job_id, event)
+            # Surface the live status to subscribers so the UI pill tracks reality
+            # (progress/reporting events otherwise wouldn't carry the updated status).
+            await self._publish(job_id, {**event, "status": p.status})
 
         try:
             job.progress.status = JobStatus.resolving
@@ -105,6 +125,8 @@ class JobManager:
             )
             if not seed:
                 raise ValueError(f"could not resolve seed paper: {job.params.seed_id}")
+            log.info("job %s: seed resolved → %r; expanding to depth %d",
+                     job_id, seed.title[:60], job.params.depth)
 
             expander = GraphExpander(
                 job_id, seed, job.params,
@@ -116,11 +138,14 @@ class JobManager:
             job.progress.status = JobStatus.completed
             job.progress.message = "completed"
             await self.db.update_job(job)
+            log.info("job %s: completed — %d nodes, %d Codex calls, %.0fs",
+                     job_id, job.progress.nodes, codex.calls, job.progress.elapsed_s)
             await self._publish(job_id, {"type": "done", "nodes": job.progress.nodes,
                                          "codex_calls": codex.calls})
         except Exception as exc:  # noqa: BLE001
             job.error = f"{type(exc).__name__}: {exc}"
             job.progress.status = JobStatus.failed
             job.progress.message = job.error
+            log.warning("job %s: failed — %s", job_id, job.error)
             await self.db.update_job(job)
             await self._publish(job_id, {"type": "failed", "error": job.error})

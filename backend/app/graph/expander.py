@@ -6,11 +6,17 @@ keep the most relevant (loose threshold + top-K), persist nodes/edges, then —
 from depth 3 onward — summarize the kept papers and emit a progressive report.
 A global node ceiling and the Codex call budget bound total cost; when a ceiling
 truncates results we report it rather than truncating silently.
+
+Each phase (fetch / score / summarize / report) is timed and logged, and the
+cumulative per-phase breakdown is streamed to the UI so a slow run is diagnosable.
 """
 
 from __future__ import annotations
 
+import logging
+import time
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Protocol
 
 from app.ai.codex_client import CodexBudgetExceeded
@@ -21,6 +27,8 @@ from app.config import Settings
 from app.models import Edge, JobParams, Paper
 from app.sources.merge import dedup_papers
 from app.graph.prefilter import prefilter
+
+log = logging.getLogger(__name__)
 
 Emit = Callable[[dict], Awaitable[None]]
 
@@ -75,10 +83,34 @@ class GraphExpander:
         self.summaries: dict[str, str] = {}
         self.node_count = 0
         self.notes: list[str] = []
+        self.timings: dict[str, float] = {}       # cumulative seconds per phase
+        self.start_time = time.monotonic()
 
     async def emit(self, **event) -> None:
         if self._emit:
             await self._emit(event)
+
+    def _elapsed(self) -> float:
+        return time.monotonic() - self.start_time
+
+    @asynccontextmanager
+    async def _timed(self, phase: str, level: int, detail: str = ""):
+        """Time a phase: log + stream its start, accumulate the duration, then log + stream done."""
+        head = f"L{level} {phase}" + (f" · {detail}" if detail else "")
+        log.info("%s — start", head)
+        await self.emit(type="progress", level=level, phase=phase, nodes=self.node_count,
+                        codex_calls=self.codex.calls, elapsed_s=self._elapsed(), message=f"{head}…")
+        t0 = time.monotonic()
+        try:
+            yield
+        finally:
+            dt = time.monotonic() - t0
+            self.timings[phase] = self.timings.get(phase, 0.0) + dt
+            log.info("%s — done in %.1fs (Σ%s=%.1fs, elapsed=%.0fs)",
+                     head, dt, phase, self.timings[phase], self._elapsed())
+            await self.emit(type="progress", level=level, phase=phase, nodes=self.node_count,
+                            codex_calls=self.codex.calls, timings=dict(self.timings),
+                            elapsed_s=self._elapsed(), message=f"{head} done in {dt:.1f}s")
 
     async def _record_node(self, paper: Paper, level: int, relevance: float, reason: str) -> None:
         await self.db.add_job_paper(self.job_id, paper.id, level, relevance, reason)
@@ -87,10 +119,15 @@ class GraphExpander:
         self.node_count += 1
 
     async def run(self) -> None:
+        self.start_time = time.monotonic()
+        log.info("expansion start: seed=%r depth=%d k=%d threshold=%.2f",
+                 self.seed.title[:60], min(self.params.depth, self.settings.max_depth),
+                 self.k, self.threshold)
         # Seed = level 0
         await self._record_node(self.seed, 0, 1.0, "seed")
         await self.emit(type="progress", level=0, nodes=self.node_count, edges=0,
-                        codex_calls=self.codex.calls, message="seed added")
+                        codex_calls=self.codex.calls, elapsed_s=self._elapsed(),
+                        message="seed added")
 
         frontier = [self.seed]
         depth = min(self.params.depth, self.settings.max_depth)
@@ -101,10 +138,14 @@ class GraphExpander:
                 await self.emit(type="note", message=self.notes[-1])
                 break
 
-            await self.emit(type="progress", level=level, nodes=self.node_count,
-                            codex_calls=self.codex.calls, message=f"expanding level {level}")
+            log.info("=== level %d/%d start (frontier=%d, nodes=%d, elapsed=%.0fs) ===",
+                     level, depth, len(frontier), self.node_count, self._elapsed())
+            await self.emit(type="progress", level=level, phase="expand", nodes=self.node_count,
+                            codex_calls=self.codex.calls, elapsed_s=self._elapsed(),
+                            message=f"expanding level {level}")
 
-            discovered, links = await self._gather(frontier, level)
+            async with self._timed("fetch", level, f"{len(frontier)} frontier paper(s)"):
+                discovered, links = await self._gather(frontier, level)
             fresh = [p for p in discovered if p.id not in self.visited]
             if not fresh:
                 await self.emit(type="note", message=f"level {level}: no new candidates")
@@ -117,12 +158,11 @@ class GraphExpander:
                 )
                 await self.emit(type="note", message=self.notes[-1])
 
-            await self.emit(type="activity", level=level,
-                            message=f"L{level}: scoring {len(capped)} candidates for relevance (Codex)")
             try:
-                scored = await score_relevance(
-                    self.codex, self.seed, capped, self.settings.relevance_batch_size
-                )
+                async with self._timed("score", level, f"{len(capped)} candidates"):
+                    scored = await score_relevance(
+                        self.codex, self.seed, capped, self.settings.relevance_batch_size
+                    )
             except CodexBudgetExceeded:
                 self.notes.append(f"level {level}: Codex budget exhausted; stopping expansion")
                 await self.emit(type="note", message=self.notes[-1])
@@ -166,18 +206,19 @@ class GraphExpander:
                     )
                     edge_count += 1
 
-            await self.emit(type="progress", level=level, nodes=self.node_count, edges=edge_count,
-                            codex_calls=self.codex.calls,
+            log.info("L%d: kept %d/%d candidates, +%d edges (nodes now %d)",
+                     level, len(new_frontier), len(capped), edge_count, self.node_count)
+            await self.emit(type="progress", level=level, phase="kept", nodes=self.node_count,
+                            edges=edge_count, codex_calls=self.codex.calls, elapsed_s=self._elapsed(),
                             message=f"level {level}: kept {len(new_frontier)} papers")
 
             # summaries for the newly kept papers
             if self.settings.summarize_kept and new_frontier and self.codex.remaining() > 0:
-                await self.emit(type="activity", level=level,
-                                message=f"L{level}: writing AI summaries for {len(new_frontier)} papers")
                 try:
-                    sums = await summarize_papers(
-                        self.codex, self.seed, new_frontier, self.params.language
-                    )
+                    async with self._timed("summarize", level, f"{len(new_frontier)} papers"):
+                        sums = await summarize_papers(
+                            self.codex, self.seed, new_frontier, self.params.language
+                        )
                     for sm in sums:
                         self.summaries[sm.paper_id] = sm.text
                         await self.db.upsert_summary(self.job_id, sm)
@@ -203,8 +244,11 @@ class GraphExpander:
             gaps = final_report.gaps if final_report else []
             await self._make_web_report(gaps)
 
+        log.info("expansion complete: %d nodes, %d Codex calls, %.0fs total; timings=%s",
+                 self.node_count, self.codex.calls, self._elapsed(),
+                 {k: round(v, 1) for k, v in self.timings.items()})
         await self.emit(type="done", nodes=self.node_count, codex_calls=self.codex.calls,
-                        notes=self.notes)
+                        timings=dict(self.timings), elapsed_s=self._elapsed(), notes=self.notes)
 
     async def _gather(self, frontier: list[Paper], level: int):
         """Pull neighbors of the frontier; return (deduped papers, links)."""
@@ -213,26 +257,35 @@ class GraphExpander:
         cap = self.settings.prefilter_per_paper
         for i, parent in enumerate(frontier, 1):
             short = parent.title[:60] + ("…" if len(parent.title) > 60 else "")
-            await self.emit(type="activity", level=level,
+            await self.emit(type="activity", level=level, phase="fetch",
                             message=f"L{level}: fetching links of [{i}/{len(frontier)}] {short}")
+            n_ref = n_cite = 0
             if self.params.include_references:
                 refs = await self.library.get_neighbors(parent.id, "reference", cap, parent.external_ids)
+                n_ref = len(refs)
                 for r in refs:
                     raw.append(r)
                     links.append((parent.id, r.id, "reference"))
             if self.params.include_citations:
                 cites = await self.library.get_neighbors(parent.id, "citation", cap, parent.external_ids)
+                n_cite = len(cites)
                 for c in cites:
                     raw.append(c)
                     links.append((parent.id, c.id, "citation"))
+            log.info("L%d fetch [%d/%d] %s → %d refs, %d cites",
+                     level, i, len(frontier), short, n_ref, n_cite)
         deduped = dedup_papers(raw)
-        await self.emit(type="activity", level=level,
+        log.info("L%d fetch: %d raw neighbors → %d unique", level, len(raw), len(deduped))
+        await self.emit(type="activity", level=level, phase="fetch",
                         message=f"L{level}: collected {len(deduped)} unique neighbors")
         return deduped, links
 
     async def _make_report(self, level: str):
-        await self.emit(type="reporting", level=level, message=f"generating report {level}")
+        log.info("report %s — start (%d papers)", level, len(self.kept_papers))
+        await self.emit(type="reporting", level=level, phase="report", elapsed_s=self._elapsed(),
+                        message=f"generating report {level}")
         papers = list(self.kept_papers.values())
+        t0 = time.monotonic()
         try:
             report = await generate_report(
                 self.codex, self.seed, papers, self.summaries, level, self.params.language
@@ -241,14 +294,20 @@ class GraphExpander:
             self.notes.append(f"report {level}: budget exhausted, skipped")
             await self.emit(type="note", message=self.notes[-1])
             return None
+        self.timings["report"] = self.timings.get("report", 0.0) + (time.monotonic() - t0)
+        log.info("report %s — done in %.1fs", level, time.monotonic() - t0)
         await self.db.upsert_report(self.job_id, report)
-        await self.emit(type="report_ready", level=level, codex_calls=self.codex.calls)
+        await self.emit(type="report_ready", level=level, codex_calls=self.codex.calls,
+                        timings=dict(self.timings), elapsed_s=self._elapsed())
         return report
 
     async def _make_web_report(self, gaps: list[str]) -> None:
-        await self.emit(type="reporting", level="web",
+        log.info("web report — start (%d gaps)", len(gaps))
+        await self.emit(type="reporting", level="web", phase="web", elapsed_s=self._elapsed(),
                         message="searching the web (DuckDuckGo) for external context")
-        await self.emit(type="activity", message="running web searches for surveys & recent work")
+        await self.emit(type="activity", phase="web",
+                        message="running web searches for surveys & recent work")
+        t0 = time.monotonic()
         try:
             report = await generate_web_context(
                 self.codex, self.seed, gaps,
@@ -260,5 +319,8 @@ class GraphExpander:
             self.notes.append("web report: budget exhausted, skipped")
             await self.emit(type="note", message=self.notes[-1])
             return
+        self.timings["web"] = self.timings.get("web", 0.0) + (time.monotonic() - t0)
+        log.info("web report — done in %.1fs", time.monotonic() - t0)
         await self.db.upsert_report(self.job_id, report)
-        await self.emit(type="report_ready", level="web", codex_calls=self.codex.calls)
+        await self.emit(type="report_ready", level="web", codex_calls=self.codex.calls,
+                        timings=dict(self.timings), elapsed_s=self._elapsed())

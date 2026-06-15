@@ -44,10 +44,17 @@ export function useApi() {
     exportUrl: (id: string, format: 'bibtex' | 'markdown') =>
       `${base}/jobs/${id}/export?format=${format}`,
 
-    /** Subscribe to job progress via SSE. Returns an unsubscribe function. */
+    /** Subscribe to job progress via SSE. Returns an unsubscribe function.
+     *  Besides the server's progress events, the caller also receives synthetic
+     *  events so it can tell "still generating" from "truly disconnected":
+     *    - 'heartbeat'    server is alive but quiet (e.g. a long Codex call)
+     *    - 'reconnecting' transport dropped; EventSource is auto-retrying
+     *    - 'stale'        connection closed for good / worker gone → poll getJob
+     */
     streamEvents(id: string, onEvent: (type: string, data: any) => void): () => void {
       const es = new EventSource(`${base}/jobs/${id}/events`)
-      const terminal = new Set(['done', 'failed', 'end'])
+      const terminal = new Set(['done', 'failed', 'end', 'stale'])
+      let closed = false
       const handler = (type: string) => (e: MessageEvent) => {
         try {
           onEvent(type, JSON.parse(e.data))
@@ -55,13 +62,25 @@ export function useApi() {
           onEvent(type, e.data)
         }
         // Close on terminal events so EventSource doesn't auto-reconnect in a loop.
-        if (terminal.has(type)) es.close()
+        if (terminal.has(type)) { closed = true; es.close() }
       }
-      for (const t of ['snapshot', 'progress', 'note', 'reporting', 'report_ready', 'done', 'failed', 'end']) {
+      for (const t of ['snapshot', 'progress', 'note', 'reporting', 'report_ready',
+                       'clusters_ready', 'links_ready', 'heartbeat', 'done', 'failed', 'stale', 'end']) {
         es.addEventListener(t, handler(t))
       }
-      es.onerror = () => { /* transient; server closes the stream on terminal event */ }
-      return () => es.close()
+      es.onerror = () => {
+        if (closed) return
+        // readyState CLOSED (2): EventSource gave up (e.g. 404 / server gone) →
+        //   stop and let the caller fall back to polling getJob.
+        // readyState CONNECTING (0): transient drop, it's auto-retrying → just a hint.
+        if (es.readyState === EventSource.CLOSED) {
+          closed = true
+          onEvent('stale', { reason: 'connection closed' })
+        } else {
+          onEvent('reconnecting', { readyState: es.readyState })
+        }
+      }
+      return () => { closed = true; es.close() }
     },
   }
 }

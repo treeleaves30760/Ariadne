@@ -45,7 +45,8 @@ async def _manager(db):
 async def test_run_success_updates_progress_and_publishes(db, monkeypatch):
     monkeypatch.setattr(manager_mod, "GraphExpander", FakeExpander)
     FakeExpander.script = [
-        {"type": "progress", "level": 1, "nodes": 3, "edges": 2, "codex_calls": 1, "message": "m"},
+        {"type": "progress", "level": 1, "nodes": 3, "edges": 2, "codex_calls": 1, "message": "m",
+         "phase": "score", "elapsed_s": 4.5, "timings": {"fetch": 1.0, "score": 3.5}},
         {"type": "activity", "message": "feed only"},
         {"type": "note", "message": "a note"},
         {"type": "reporting", "level": "final", "message": "reporting"},
@@ -63,6 +64,9 @@ async def test_run_success_updates_progress_and_publishes(db, monkeypatch):
     assert got.progress.nodes == 3
     assert got.progress.edges == 2
     assert got.progress.current_level == 1
+    assert got.progress.phase == "score"
+    assert got.progress.elapsed_s == 4.5
+    assert got.progress.timings == {"fetch": 1.0, "score": 3.5}
     assert "a note" in got.progress.notes
     assert got.progress.reports_available == ["3"]
 
@@ -129,3 +133,19 @@ async def test_start_job_runs_in_background(db, monkeypatch):
         await asyncio.sleep(0.01)
     got = await db.get_job(job.id)
     assert got.progress.status == JobStatus.completed
+
+
+async def test_is_running_reflects_task_lifecycle(db, monkeypatch):
+    monkeypatch.setattr(manager_mod, "GraphExpander", FakeExpander)
+    FakeExpander.script = []
+    mgr = await _manager(db)
+    assert mgr.is_running("nope") is False           # never started → no task
+    await db.upsert_paper(SEED)
+    job = await mgr.create_job(JobParams(seed_id="10/seed"))
+    mgr.start_job(job.id)
+    assert mgr.is_running(job.id) is True             # task registered and still live
+    for _ in range(100):
+        if job.id not in mgr._tasks:
+            break
+        await asyncio.sleep(0.01)
+    assert mgr.is_running(job.id) is False            # finished → popped from _tasks
