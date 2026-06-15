@@ -49,7 +49,7 @@ docker compose exec backend codex login --device-auth   # 一次性,用你自己
 ## 快速開始(從原始碼)
 
 ```bash
-# 後端(8000 被佔用時改用 --port 8008)
+# 後端(預設埠 8008;8008 被佔用時用 --port 改埠)
 cd backend
 cp .env.example .env        # 設定 PC_OPENALEX_EMAIL;PC_SEMANTIC_SCHOLAR_API_KEY 選填
 uv sync
@@ -57,7 +57,7 @@ uv run uvicorn app.main:app --reload --port 8008
 
 # 前端
 cd web
-cp .env.example .env        # 設定 NUXT_PUBLIC_API_BASE=http://127.0.0.1:8008
+cp .env.example .env        # 預設已指向 http://127.0.0.1:8008;後端改埠時才需修改
 npm install
 npm run dev                 # 開 http://localhost:3000
 ```

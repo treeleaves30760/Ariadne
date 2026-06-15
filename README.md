@@ -54,7 +54,7 @@ user signs in with their own ChatGPT subscription. Optional: put `PC_OPENALEX_EM
 ## Quick start (from source)
 
 ```bash
-# Backend (use --port 8008 if 8000 is taken)
+# Backend (default port 8008; use --port if 8008 is taken)
 cd backend
 cp .env.example .env        # set PC_OPENALEX_EMAIL; PC_SEMANTIC_SCHOLAR_API_KEY optional
 uv sync
@@ -62,7 +62,7 @@ uv run uvicorn app.main:app --reload --port 8008
 
 # Frontend
 cd web
-cp .env.example .env        # set NUXT_PUBLIC_API_BASE=http://127.0.0.1:8008
+cp .env.example .env        # already points at http://127.0.0.1:8008; edit if backend uses another port
 npm install
 npm run dev                 # open http://localhost:3000
 ```

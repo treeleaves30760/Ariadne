@@ -56,13 +56,13 @@ Health check: `curl http://127.0.0.1:8008/health` → `{"status":"ok"}`
 
 ```bash
 cd web
-cp .env.example .env          # set NUXT_PUBLIC_API_BASE=http://127.0.0.1:8008
+cp .env.example .env          # already points at http://127.0.0.1:8008; edit if backend uses another port
 npm install
 npm run dev                   # open http://localhost:3000
 ```
 
-> The frontend calls `http://127.0.0.1:8000` by default. If the backend runs on another
-> port (e.g. 8000 is taken so you used 8008), set `NUXT_PUBLIC_API_BASE` in `web/.env`.
+> The frontend calls `http://127.0.0.1:8008` by default (matching the backend above). If the
+> backend runs on another port, set `NUXT_PUBLIC_API_BASE` in `web/.env` to match.
 
 ---
 
@@ -191,7 +191,7 @@ cd web && npm run build          # frontend production build
 | Symptom | Fix |
 |---------|-----|
 | Frontend can't reach backend | Make sure `NUXT_PUBLIC_API_BASE` in `web/.env` matches the backend's actual port |
-| Port 8000 already in use | Run the backend with `--port 8008` and set `NUXT_PUBLIC_API_BASE` to match |
+| Port 8008 already in use | Run the backend with another `--port` and set `NUXT_PUBLIC_API_BASE` to match |
 | Codex hangs | Ensure you've run `codex login`; the prompt is passed via stdin (built in) so it never waits on stdin |
 | Job converges early | Usually `PC_MAX_NODES` / `PC_MAX_CODEX_CALLS` was hit — raise or lower to trade off cost |
 | Missing abstracts / PDFs | The source itself lacks them; S2 and OpenAlex backfill each other but gaps can remain |

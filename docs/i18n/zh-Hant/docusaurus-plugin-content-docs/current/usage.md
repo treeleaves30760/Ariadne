@@ -55,12 +55,12 @@ uv run uvicorn app.main:app --reload --port 8008
 
 ```bash
 cd web
-cp .env.example .env          # 設定 NUXT_PUBLIC_API_BASE=http://127.0.0.1:8008
+cp .env.example .env          # 預設已指向 http://127.0.0.1:8008;後端改埠時才需修改
 npm install
 npm run dev                   # 開 http://localhost:3000
 ```
 
-> 前端預設打 `http://127.0.0.1:8000`。若後端用其他埠（例如 8000 已被佔用而改用 8008），
+> 前端預設打 `http://127.0.0.1:8008`(與上方後端一致)。若後端用其他埠,
 > 務必在 `web/.env` 設 `NUXT_PUBLIC_API_BASE` 指向正確埠。
 
 ---
@@ -178,7 +178,7 @@ cd web && npm run build          # 前端 production build
 | 症狀 | 處理 |
 |------|------|
 | 前端打不到後端 | 確認 `web/.env` 的 `NUXT_PUBLIC_API_BASE` 與後端實際埠一致 |
-| 8000 埠被佔用 | 後端改 `--port 8008` 並同步設 `NUXT_PUBLIC_API_BASE` |
+| 8008 埠被佔用 | 後端改用其他 `--port` 並同步設 `NUXT_PUBLIC_API_BASE` |
 | Codex 卡住不回 | 確認已 `codex login`；prompt 經 stdin 傳入（已內建）避免等待 stdin |
 | Job 提早收斂 | 多半是觸及 `PC_MAX_NODES` / `PC_MAX_CODEX_CALLS`，調高或調低取捨成本 |
 | 抓不到某些 abstract / PDF | 來源本身缺漏；系統會在 S2 與 OpenAlex 間互補，仍可能有缺 |
