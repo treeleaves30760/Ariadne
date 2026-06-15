@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     http_timeout_s: float = 30.0
     http_max_retries: int = 4
 
+    # arXiv direct source — covers very recent papers and arXiv-id / DOI lookups
+    # that Semantic Scholar / OpenAlex haven't indexed yet.
+    arxiv_base: str = "https://export.arxiv.org/api"
+    arxiv_min_interval_s: float = 3.0  # arXiv asks for ~1 request / 3s
+
+    # Interactive resolve: soft per-source time budget so one slow or dead source
+    # (e.g. rate-limited, keyless Semantic Scholar) can't stall the whole search.
+    search_timeout_s: float = 8.0
+
     # --- Web search (DuckDuckGo) for report enrichment ---
     web_search_enabled: bool = True
     web_search_max_results: int = 5

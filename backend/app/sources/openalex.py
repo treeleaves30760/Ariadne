@@ -9,7 +9,7 @@ import httpx
 from app.config import Settings
 from app.models import Author, Candidate, ExternalIds, Paper
 from app.sources.http import HttpFetcher, Throttle
-from app.sources.ids import canonical_id, norm_doi, norm_openalex
+from app.sources.ids import arxiv_from_doi, canonical_id, norm_arxiv, norm_doi, norm_openalex
 from app.storage.db import Database
 
 WORK_SELECT = (
@@ -62,8 +62,12 @@ class OpenAlex:
         if not raw or not (raw.get("display_name") or raw.get("title")):
             return None
         ids = raw.get("ids") or {}
+        doi = norm_doi(raw.get("doi") or ids.get("doi"))
         ext = ExternalIds(
-            doi=norm_doi(raw.get("doi") or ids.get("doi")),
+            doi=doi,
+            # OpenAlex exposes arXiv either as ids.arxiv or only inside the
+            # DataCite DOI (10.48550/arxiv.<id>); recover it from both.
+            arxiv=norm_arxiv(ids.get("arxiv")) or arxiv_from_doi(doi),
             openalex=norm_openalex(raw.get("id") or ids.get("openalex")),
         )
         if not (ext.doi or ext.openalex):

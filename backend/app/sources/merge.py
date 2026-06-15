@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.models import Candidate, ExternalIds, Paper
-from app.sources.ids import normalize_title
+from app.sources.ids import canonical_id, normalize_title
 
 
 def dedup_key(p: Paper | Candidate) -> str:
@@ -97,5 +97,35 @@ def dedup_candidates(*lists: list[Candidate]) -> list[Candidate]:
                 # prefer the one with more metadata / higher citation count
                 ext = _merge_ext(existing.external_ids, c.external_ids)
                 better = c if (c.citation_count or 0) > (existing.citation_count or 0) else existing
-                buckets[k] = better.model_copy(update={"external_ids": ext})
+                # Recompute the canonical id from the merged ids (DOI wins) so the
+                # survivor stays addressable across sources (e.g. an arXiv paper keeps
+                # its DOI/arXiv routing instead of an unaddressable OpenAlex-only id).
+                buckets[k] = better.model_copy(
+                    update={"external_ids": ext, "id": canonical_id(ext)}
+                )
+    return [buckets[k] for k in order]
+
+
+def collapse_by_title(cands: list[Candidate]) -> list[Candidate]:
+    """Second-pass merge: fold candidates that share a normalized title.
+
+    ``dedup_candidates`` keys on DOI-or-title, so two records of the same paper
+    where only one carries a DOI stay separate (e.g. OpenAlex sometimes indexes
+    an arXiv paper twice — once with its DataCite DOI, once without). This folds
+    them together, unioning identifiers and keeping the higher citation count.
+    """
+    buckets: dict[str, Candidate] = {}
+    order: list[str] = []
+    for c in cands:
+        k = normalize_title(c.title)
+        if k not in buckets:
+            buckets[k] = c
+            order.append(k)
+        else:
+            existing = buckets[k]
+            ext = _merge_ext(existing.external_ids, c.external_ids)
+            better = c if (c.citation_count or 0) > (existing.citation_count or 0) else existing
+            buckets[k] = better.model_copy(
+                update={"external_ids": ext, "id": canonical_id(ext)}
+            )
     return [buckets[k] for k in order]

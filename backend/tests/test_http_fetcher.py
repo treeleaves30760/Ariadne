@@ -122,6 +122,41 @@ async def test_post_json_caches():
         await db.close()
 
 
+@respx.mock
+async def test_get_text_returns_raw_body():
+    respx.get(URL).mock(return_value=httpx.Response(200, text="<feed/>"))
+    client, f = await _fetcher()
+    try:
+        assert await f.get_text(URL, use_cache=False) == "<feed/>"
+    finally:
+        await client.aclose()
+
+
+@respx.mock
+async def test_max_retries_override_fails_fast(monkeypatch):
+    monkeypatch.setattr("app.sources.http.asyncio.sleep", _no_sleep)
+    route = respx.get(URL).mock(return_value=httpx.Response(429))
+    client, f = await _fetcher(max_retries=5)
+    try:
+        # override to a single attempt -> one call, no trailing sleep, ok_404 -> None
+        assert await f.get_json(URL, use_cache=False, ok_404=True, max_retries=1) is None
+        assert route.call_count == 1
+    finally:
+        await client.aclose()
+
+
+@respx.mock
+async def test_network_error_exhausts_retries(monkeypatch):
+    monkeypatch.setattr("app.sources.http.asyncio.sleep", _no_sleep)
+    respx.get(URL).mock(side_effect=httpx.ConnectError("down"))
+    client, f = await _fetcher(max_retries=2)
+    try:
+        with pytest.raises(RuntimeError, match="request failed"):
+            await f.get_json(URL, use_cache=False)
+    finally:
+        await client.aclose()
+
+
 async def test_throttle_waits_between_calls(monkeypatch):
     slept: list[float] = []
 

@@ -64,9 +64,25 @@ class HttpFetcher:
         headers: dict | None = None,
         use_cache: bool = True,
         ok_404: bool = False,
+        max_retries: int | None = None,
     ) -> Any | None:
         return await self._request("GET", url, params=params, headers=headers,
-                                   use_cache=use_cache, ok_404=ok_404)
+                                   use_cache=use_cache, ok_404=ok_404, max_retries=max_retries)
+
+    async def get_text(
+        self,
+        url: str,
+        params: dict | None = None,
+        *,
+        headers: dict | None = None,
+        use_cache: bool = True,
+        ok_404: bool = False,
+        max_retries: int | None = None,
+    ) -> str | None:
+        """Like :meth:`get_json` but returns the raw response body (e.g. arXiv Atom XML)."""
+        return await self._request("GET", url, params=params, headers=headers,
+                                   use_cache=use_cache, ok_404=ok_404,
+                                   max_retries=max_retries, parse="text")
 
     async def post_json(
         self,
@@ -76,9 +92,11 @@ class HttpFetcher:
         *,
         headers: dict | None = None,
         use_cache: bool = True,
+        max_retries: int | None = None,
     ) -> Any | None:
         return await self._request("POST", url, params=params, headers=headers,
-                                   json_body=json_body, use_cache=use_cache)
+                                   json_body=json_body, use_cache=use_cache,
+                                   max_retries=max_retries)
 
     async def _request(
         self,
@@ -90,7 +108,10 @@ class HttpFetcher:
         json_body: Any = None,
         use_cache: bool = True,
         ok_404: bool = False,
+        max_retries: int | None = None,
+        parse: str = "json",
     ) -> Any | None:
+        retries = max_retries if max_retries is not None else self.max_retries
         key = self._cache_key(method, url, params, json_body)
         if use_cache and self.db is not None:
             cached = await self.db.cache_get(key)
@@ -98,7 +119,7 @@ class HttpFetcher:
                 return cached
 
         last_exc: Exception | None = None
-        for attempt in range(self.max_retries):
+        for attempt in range(retries):
             await self.throttle.wait()
             try:
                 resp = await self.client.request(
@@ -106,7 +127,8 @@ class HttpFetcher:
                 )
             except httpx.HTTPError as exc:  # network error -> backoff & retry
                 last_exc = exc
-                await asyncio.sleep(min(2**attempt, 20))
+                if attempt < retries - 1:
+                    await asyncio.sleep(min(2**attempt, 20))
                 continue
 
             if resp.status_code == 404 and ok_404:
@@ -114,17 +136,18 @@ class HttpFetcher:
             if resp.status_code == 429 or resp.status_code >= 500:
                 retry_after = resp.headers.get("Retry-After")
                 delay = float(retry_after) if retry_after and retry_after.isdigit() else min(2**attempt, 20)
-                await asyncio.sleep(delay)
                 last_exc = httpx.HTTPStatusError(
                     f"{resp.status_code}", request=resp.request, response=resp
                 )
+                if attempt < retries - 1:  # don't sleep after the final attempt
+                    await asyncio.sleep(delay)
                 continue
             resp.raise_for_status()
-            data = resp.json()
+            data = resp.text if parse == "text" else resp.json()
             if use_cache and self.db is not None:
                 await self.db.cache_set(key, data)
             return data
 
         if ok_404:
             return None
-        raise RuntimeError(f"{self.source}: request failed after {self.max_retries} retries: {last_exc}")
+        raise RuntimeError(f"{self.source}: request failed after {retries} retries: {last_exc}")

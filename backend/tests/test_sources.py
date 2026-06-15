@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from app.models import Author, ExternalIds, Paper
-from app.sources.ids import canonical_id, norm_arxiv, norm_doi, normalize_title
-from app.sources.merge import dedup_candidates, dedup_papers, merge_papers
+from app.models import Candidate, ExternalIds, Paper
+from app.sources.ids import (
+    arxiv_from_doi,
+    canonical_id,
+    detect_identifier,
+    norm_arxiv,
+    norm_doi,
+    normalize_title,
+)
+from app.sources.merge import collapse_by_title, dedup_candidates, dedup_papers, merge_papers
 from app.sources.openalex import OpenAlex, reconstruct_abstract
 from app.sources.semantic_scholar import SemanticScholar, _paper_to_candidate
 
@@ -18,6 +25,26 @@ def test_norm_doi():
 def test_norm_arxiv():
     assert norm_arxiv("arXiv:1706.03762") == "1706.03762"
     assert norm_arxiv("1706.03762") == "1706.03762"
+    assert norm_arxiv("https://arxiv.org/abs/2601.14724v4") == "2601.14724"  # URL + version
+    assert norm_arxiv("https://arxiv.org/pdf/2601.14724") == "2601.14724"
+    assert norm_arxiv("2601.14724v2") == "2601.14724"
+
+
+def test_arxiv_from_doi():
+    assert arxiv_from_doi("10.48550/arxiv.2601.14724") == "2601.14724"
+    assert arxiv_from_doi("10.48550/arXiv.1706.03762v3") == "1706.03762"
+    assert arxiv_from_doi("10.1145/other") is None
+    assert arxiv_from_doi(None) is None
+
+
+def test_detect_identifier():
+    assert detect_identifier("https://arxiv.org/abs/2601.14724") == ("arxiv", "2601.14724")
+    assert detect_identifier("arXiv:2601.14724v4") == ("arxiv", "2601.14724")
+    assert detect_identifier("2601.14724") == ("arxiv", "2601.14724")
+    assert detect_identifier("10.48550/arXiv.2601.14724") == ("arxiv", "2601.14724")
+    assert detect_identifier("10.1145/3292500.3330701") == ("doi", "10.1145/3292500.3330701")
+    assert detect_identifier("Attention Is All You Need") is None
+    assert detect_identifier("   ") is None
 
 
 def test_canonical_id_prefers_doi():
@@ -125,3 +152,38 @@ def test_dedup_candidates_dedups_by_title_without_doi():
     assert len(out) == 1
     assert out[0].external_ids.s2 == "abc"
     assert out[0].external_ids.openalex == "W1"
+
+
+def test_oa_to_paper_extracts_arxiv():
+    # arXiv id recovered from the DataCite DOI
+    p = OpenAlex._to_paper({
+        "display_name": "X", "doi": "https://doi.org/10.48550/arxiv.2601.14724",
+        "ids": {"openalex": "https://openalex.org/W1"},
+    })
+    assert p.external_ids.arxiv == "2601.14724"
+    # arXiv id recovered from ids.arxiv (URL form)
+    p2 = OpenAlex._to_paper({
+        "display_name": "Y",
+        "ids": {"openalex": "https://openalex.org/W2", "arxiv": "https://arxiv.org/abs/1706.03762"},
+    })
+    assert p2.external_ids.arxiv == "1706.03762"
+
+
+def test_collapse_by_title_folds_doi_and_title_only():
+    # The same paper indexed twice — once with a DOI, once title-only — collapses to one.
+    a = Candidate(id="oa:W1", title="HERMES: KV Cache", source="openalex", citation_count=0,
+                  external_ids=ExternalIds(openalex="W1"))
+    b = Candidate(id="10.48550/arxiv.2601.14724", title="HERMES: KV Cache", source="openalex",
+                  citation_count=0,
+                  external_ids=ExternalIds(doi="10.48550/arxiv.2601.14724", arxiv="2601.14724",
+                                           openalex="W2"))
+    out = collapse_by_title([a, b])
+    assert len(out) == 1
+    assert out[0].external_ids.doi == "10.48550/arxiv.2601.14724"
+    assert out[0].external_ids.arxiv == "2601.14724"
+    # id recomputed from merged ids (DOI wins) so the survivor stays addressable
+    assert out[0].id == "10.48550/arxiv.2601.14724"
+    # distinct titles are preserved
+    c = Candidate(id="oa:W3", title="Other", source="openalex",
+                  external_ids=ExternalIds(openalex="W3"))
+    assert len(collapse_by_title([a, c])) == 2
