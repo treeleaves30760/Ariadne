@@ -14,6 +14,7 @@ import aiosqlite
 
 from app.config import get_settings
 from app.models import (
+    Clustering,
     Edge,
     Job,
     JobParams,
@@ -73,6 +74,11 @@ CREATE TABLE IF NOT EXISTS reports (
     level       TEXT NOT NULL,
     data        TEXT NOT NULL,
     PRIMARY KEY (job_id, level)
+);
+
+CREATE TABLE IF NOT EXISTS clusters (
+    job_id      TEXT PRIMARY KEY,
+    data        TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS api_cache (
@@ -213,7 +219,7 @@ class Database:
     async def delete_job(self, job_id: str) -> bool:
         """Permanently delete a job and all rows that reference it. False if no such job."""
         cur = await self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
-        for tbl in ("job_papers", "edges", "summaries", "reports", "qa"):
+        for tbl in ("job_papers", "edges", "summaries", "reports", "clusters", "qa"):
             await self._conn.execute(f"DELETE FROM {tbl} WHERE job_id = ?", (job_id,))
         await self._conn.commit()
         return cur.rowcount > 0
@@ -269,6 +275,21 @@ class Database:
             "SELECT level FROM reports WHERE job_id = ?", (job_id,)
         )
         return [r["level"] for r in await cur.fetchall()]
+
+    # ------------------------------ clusters ----------------------------- #
+    async def upsert_clustering(self, job_id: str, clustering: Clustering) -> None:
+        await self._conn.execute(
+            "INSERT OR REPLACE INTO clusters (job_id, data) VALUES (?, ?)",
+            (job_id, clustering.model_dump_json()),
+        )
+        await self._conn.commit()
+
+    async def get_clustering(self, job_id: str) -> Clustering | None:
+        cur = await self._conn.execute(
+            "SELECT data FROM clusters WHERE job_id = ?", (job_id,)
+        )
+        row = await cur.fetchone()
+        return Clustering.model_validate_json(row["data"]) if row else None
 
     # -------------------------------- qa --------------------------------- #
     async def add_qa(self, job_id: str, qa: "QAResult") -> None:

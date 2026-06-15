@@ -156,6 +156,8 @@ async def job_graph(job_id: str, db: Database = Depends(get_database)):
 
     rows = await db.job_papers(job_id)
     edges = await db.job_edges(job_id)
+    clustering = await db.get_clustering(job_id)
+    facet_by_id = {f.paper_id: f for f in clustering.facets} if clustering else {}
     papers = {}
     for r in rows:
         p = await db.get_paper(r["paper_id"])
@@ -179,6 +181,7 @@ async def job_graph(job_id: str, db: Database = Depends(get_database)):
             continue
         summary = await db.get_summary(job_id, r["paper_id"])
         top = is_top_venue(p.venue)
+        facet = facet_by_id.get(p.id)
         indeg = in_degree.get(p.id, 0)
         nodes.append({
             "id": p.id,
@@ -199,11 +202,23 @@ async def job_graph(job_id: str, db: Database = Depends(get_database)):
             "relevance": r["relevance"],
             "reason": r["reason"],
             "summary": summary.text if summary else None,
+            "cluster": facet.primary if facet else None,
+            "tags": facet.tags if facet else [],
         })
     return {
         "nodes": nodes,
         "edges": [e.model_dump() for e in edges],
+        "clusters": [d.model_dump() for d in clustering.dimensions] if clustering else [],
     }
+
+
+@router.get("/{job_id}/clusters")
+async def job_clusters(job_id: str, db: Database = Depends(get_database)):
+    """The AI dimensional grouping (facets) for a job, if it has been computed."""
+    clustering = await db.get_clustering(job_id)
+    if not clustering:
+        raise HTTPException(404, "clusters not available")
+    return clustering
 
 
 @router.get("/{job_id}/reports")

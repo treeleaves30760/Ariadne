@@ -164,6 +164,41 @@ class Report(BaseModel):
     raw: dict[str, Any] | None = None
 
 
+class Dimension(BaseModel):
+    """One topical facet the corpus is organized into (e.g. "Benchmarks & Datasets").
+
+    Dimensions are how a map is made legible: instead of every paper hanging off
+    the seed in one radial burst, papers are grouped/coloured by the facet they
+    belong to.
+    """
+
+    id: str                       # stable slug, unique within a job
+    label: str
+    description: str = ""
+    color: str = ""               # hex, assigned from a fixed palette by order
+    paper_ids: list[str] = Field(default_factory=list)
+
+
+class PaperFacet(BaseModel):
+    """A paper's placement: one primary dimension plus optional secondary tags.
+
+    A paper often relates to the seed along several axes, so it carries one
+    primary dimension (drives colour/grouping) and any number of secondary tags.
+    """
+
+    paper_id: str
+    primary: str                  # dimension id
+    tags: list[str] = Field(default_factory=list)  # secondary dimension ids
+
+
+class Clustering(BaseModel):
+    """AI grouping of a job's papers into topical dimensions (facets)."""
+
+    level: str = "final"
+    dimensions: list[Dimension] = Field(default_factory=list)
+    facets: list[PaperFacet] = Field(default_factory=list)
+
+
 class RuntimeConfig(BaseModel):
     """User-tunable model/provider settings applied to every Codex call."""
 

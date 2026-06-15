@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     prefilter_per_paper: int = 60   # cheap cap on candidates pulled per frontier paper
     max_candidates_per_level: int = 200  # cap sent to Codex per level (bounds cost)
     summarize_kept: bool = True     # generate per-paper AI summaries for kept nodes
+    cluster_enabled: bool = True    # AI-group kept papers into topical dimensions (facets)
+    cluster_max_dimensions: int = 8  # upper bound on the number of dimensions
 
     # --- Cross-linking: discover citation edges *among* the kept papers ---
     # Without this the map is a star (only seed→paper). Cross-linking fetches the

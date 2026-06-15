@@ -19,6 +19,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Protocol
 
+from app.ai.cluster import categorize_corpus
 from app.ai.codex_client import CodexBudgetExceeded
 from app.ai.relevance import score_relevance
 from app.ai.report import generate_report, generate_web_context
@@ -49,6 +50,7 @@ class DBLike(Protocol):
     async def add_edge(self, job_id, edge: Edge) -> None: ...
     async def upsert_summary(self, job_id, summary) -> None: ...
     async def upsert_report(self, job_id, report) -> None: ...
+    async def upsert_clustering(self, job_id, clustering) -> None: ...
 
 
 class GraphExpander:
@@ -249,6 +251,11 @@ class GraphExpander:
         if self.codex.remaining() > 0:
             final_report = await self._make_report("final")
 
+        # AI faceted categorization: organize the corpus into topical dimensions
+        # so the map can be grouped/coloured by theme instead of a radial hairball.
+        if self.settings.cluster_enabled and self.kept_papers and self.codex.remaining() > 0:
+            await self._make_clusters()
+
         # external web context (DuckDuckGo) to extend report depth beyond the graph
         if self.settings.web_search_enabled and self.codex.remaining() > 0:
             gaps = final_report.gaps if final_report else []
@@ -367,6 +374,31 @@ class GraphExpander:
         await self.emit(type="report_ready", level=level, codex_calls=self.codex.calls,
                         timings=dict(self.timings), elapsed_s=self._elapsed())
         return report
+
+    async def _make_clusters(self) -> None:
+        log.info("clustering — start (%d papers)", len(self.kept_papers))
+        await self.emit(type="progress", phase="cluster", nodes=self.node_count,
+                        codex_calls=self.codex.calls, elapsed_s=self._elapsed(),
+                        message="organizing papers into dimensions")
+        papers = list(self.kept_papers.values())
+        t0 = time.monotonic()
+        try:
+            clustering = await categorize_corpus(
+                self.codex, self.seed, papers, self.summaries,
+                language=self.params.language,
+                max_dimensions=self.settings.cluster_max_dimensions,
+            )
+        except CodexBudgetExceeded:
+            self.notes.append("clustering: budget exhausted, skipped")
+            await self.emit(type="note", message=self.notes[-1])
+            return
+        self.timings["cluster"] = self.timings.get("cluster", 0.0) + (time.monotonic() - t0)
+        log.info("clustering — done in %.1fs (%d dimensions)",
+                 time.monotonic() - t0, len(clustering.dimensions))
+        await self.db.upsert_clustering(self.job_id, clustering)
+        await self.emit(type="clusters_ready", dimensions=len(clustering.dimensions),
+                        codex_calls=self.codex.calls, timings=dict(self.timings),
+                        elapsed_s=self._elapsed())
 
     async def _make_web_report(self, gaps: list[str]) -> None:
         log.info("web report — start (%d gaps)", len(gaps))
