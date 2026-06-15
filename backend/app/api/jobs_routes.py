@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Literal
@@ -21,6 +22,11 @@ from app.services.export import to_bibtex, to_markdown
 from app.storage.db import Database
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+# Seconds of silence on a live SSE stream before we emit a liveness "heartbeat"
+# and re-check whether the worker is still running. Module-level so tests can
+# shrink it; short enough that proxies don't idle the connection out.
+HEARTBEAT_S = 15
 
 
 class AskRequest(BaseModel):
@@ -112,7 +118,24 @@ async def job_events(
         q = jobs.subscribe(job_id)
         try:
             while True:
-                event = await q.get()
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    # No progress event for a while (e.g. a long Codex call). Tell the
+                    # client whether we're still alive or the worker is gone, so it
+                    # never has to guess "disconnected" vs "still generating".
+                    if jobs.is_running(job_id):
+                        yield {"event": "heartbeat", "data": json.dumps({"status": "alive"})}
+                        continue
+                    fresh = await db.get_job(job_id)
+                    st = fresh.progress.status if fresh else None
+                    if st in TERMINAL:
+                        # finished between events — surface the final state, then stop
+                        yield {"event": "end", "data": json.dumps({"status": st})}
+                    else:
+                        # task vanished (e.g. server restart) but status non-terminal
+                        yield {"event": "stale", "data": json.dumps({"status": st})}
+                    break
                 yield {"event": event.get("type", "message"), "data": json.dumps(event)}
                 if event.get("type") in ("done", "failed"):
                     break

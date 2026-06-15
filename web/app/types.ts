@@ -23,7 +23,11 @@ export interface JobProgress {
   edges: number
   codex_calls: number
   message: string
+  phase?: string
+  elapsed_s?: number
+  timings?: Record<string, number>
   reports_available: string[]
+  notes?: string[]
 }
 
 export interface Job {

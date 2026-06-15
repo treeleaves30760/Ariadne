@@ -255,3 +255,86 @@ async def test_events_streams_until_terminal_event():
         assert fj.unsubscribed
     finally:
         await db.close()
+
+
+# ------------------- SSE heartbeat / liveness edges ---------------------- #
+class _Jobs:
+    """Minimal JobManager stand-in for SSE liveness tests."""
+
+    def __init__(self, q, running):
+        self.q = q
+        self.running = running
+        self.unsubscribed = False
+
+    def subscribe(self, jid):
+        return self.q
+
+    def unsubscribe(self, jid, qq):
+        self.unsubscribed = True
+
+    def is_running(self, jid):
+        return self.running
+
+
+class _SeqDB:
+    """get_job returns successive statuses: [route-entry, in-loop re-check]."""
+
+    def __init__(self, statuses):
+        self._statuses = list(statuses)
+
+    async def get_job(self, jid):
+        st = self._statuses.pop(0)
+        job = Job(id=jid, params=JobParams(seed_id="10/x"), created_at="t")
+        job.progress.status = st
+        return job
+
+
+async def test_events_heartbeat_while_worker_alive(db, monkeypatch):
+    import app.api.jobs_routes as jr
+    monkeypatch.setattr(jr, "HEARTBEAT_S", 0.01)
+    job = Job(id="hb", params=JobParams(seed_id="10/x"), created_at="t")
+    job.progress.status = JobStatus.expanding
+    await db.create_job(job)
+
+    q: asyncio.Queue = asyncio.Queue()
+    fj = _Jobs(q, running=True)
+    resp = await job_events(job_id="hb", jobs=fj, db=db)
+    it = resp.body_iterator
+    snap = await it.__anext__()        # snapshot
+    beat = await it.__anext__()        # silence + worker alive → heartbeat
+    await q.put({"type": "done", "nodes": 1})
+    done = await it.__anext__()        # a real event ends the stream
+    rest = [c async for c in it]       # exhaust → break + finally(unsubscribe)
+
+    assert "snapshot" in str(snap)
+    assert "heartbeat" in str(beat)
+    assert "done" in str(done)
+    assert rest == [] and fj.unsubscribed
+
+
+async def test_events_stale_when_worker_vanished(db, monkeypatch):
+    import app.api.jobs_routes as jr
+    monkeypatch.setattr(jr, "HEARTBEAT_S", 0.01)
+    job = Job(id="orphan", params=JobParams(seed_id="10/x"), created_at="t")
+    job.progress.status = JobStatus.expanding
+    await db.create_job(job)
+
+    fj = _Jobs(asyncio.Queue(), running=False)   # task gone, status still non-terminal
+    resp = await job_events(job_id="orphan", jobs=fj, db=db)
+    text = " ".join([str(c) async for c in resp.body_iterator])
+
+    assert "snapshot" in text and "stale" in text
+    assert fj.unsubscribed
+
+
+async def test_events_end_when_job_finishes_between_events(monkeypatch):
+    import app.api.jobs_routes as jr
+    monkeypatch.setattr(jr, "HEARTBEAT_S", 0.01)
+    # route-entry sees 'expanding' (so it streams); the in-loop re-check sees 'completed'
+    seq = _SeqDB([JobStatus.expanding, JobStatus.completed])
+    fj = _Jobs(asyncio.Queue(), running=False)
+    resp = await job_events(job_id="fin", jobs=fj, db=seq)
+    text = " ".join([str(c) async for c in resp.body_iterator])
+
+    assert "snapshot" in text and "end" in text
+    assert fj.unsubscribed

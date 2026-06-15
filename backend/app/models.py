@@ -110,6 +110,9 @@ class JobProgress(BaseModel):
     edges: int = 0
     codex_calls: int = 0
     message: str = ""
+    phase: str = ""                 # current sub-phase: fetch/score/summarize/report/web
+    elapsed_s: float = 0.0          # wall-clock seconds since expansion started
+    timings: dict[str, float] = Field(default_factory=dict)  # cumulative seconds per phase
     reports_available: list[str] = Field(default_factory=list)  # ["3","4","5","final","web"]
     notes: list[str] = Field(default_factory=list)  # truncation / budget transparency
 

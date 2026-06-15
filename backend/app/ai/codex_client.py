@@ -9,15 +9,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 from app.config import Settings
 from app.models import RuntimeConfig
+
+log = logging.getLogger(__name__)
 
 
 class CodexError(RuntimeError):
@@ -77,6 +81,7 @@ class CodexClient:
         self._sem = asyncio.Semaphore(max(1, settings.codex_concurrency))
         self._calls = 0
         self._max_calls = max_calls if max_calls is not None else settings.max_codex_calls
+        self._budget_lock = asyncio.Lock()  # atomic budget reservation for concurrent calls
 
     @property
     def calls(self) -> int:
@@ -89,10 +94,14 @@ class CodexClient:
         self, prompt: str, schema: dict[str, Any], *, model: str | None = None
     ) -> Any:
         """Run codex with an output JSON Schema; return the parsed JSON object."""
-        if self._calls >= self._max_calls:
-            raise CodexBudgetExceeded(
-                f"codex call budget exhausted ({self._max_calls})"
-            )
+        # Reserve a budget slot atomically so concurrent callers can't overshoot the ceiling.
+        async with self._budget_lock:
+            if self._calls >= self._max_calls:
+                raise CodexBudgetExceeded(
+                    f"codex call budget exhausted ({self._max_calls})"
+                )
+            self._calls += 1
+            call_no = self._calls
 
         tmpdir = Path(tempfile.mkdtemp(prefix="codex_"))
         schema_file = tmpdir / "schema.json"
@@ -150,17 +159,24 @@ class CodexClient:
             )
 
         async with self._sem:
-            self._calls += 1
+            log.info("codex call #%d/%d starting (model=%s)",
+                     call_no, self._max_calls, chosen_model or "default")
+            t0 = time.monotonic()
             try:
                 try:
                     proc = await asyncio.to_thread(_run)
                 except subprocess.TimeoutExpired as exc:
+                    log.warning("codex call #%d timed out after %.0fs", call_no, self.timeout)
                     raise CodexError(f"codex timed out after {self.timeout}s") from exc
 
+                dt = time.monotonic() - t0
                 if proc.returncode != 0:
+                    log.warning("codex call #%d failed rc=%d in %.1fs",
+                                call_no, proc.returncode, dt)
                     raise CodexError(
                         f"codex exited {proc.returncode}: {proc.stderr.decode('utf-8', 'replace')[:500]}"
                     )
+                log.info("codex call #%d done in %.1fs", call_no, dt)
 
                 if out_file.exists():
                     raw = out_file.read_text(encoding="utf-8").strip()

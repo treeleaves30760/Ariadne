@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from app.ai.codex_client import CodexClient
 from app.models import Paper, RelevanceResult
+
+log = logging.getLogger(__name__)
 
 RELEVANCE_SCHEMA = {
     "type": "object",
@@ -67,14 +72,23 @@ def build_prompt(seed: Paper, candidates: list[Paper]) -> str:
 async def score_relevance(
     codex: CodexClient, seed: Paper, candidates: list[Paper], batch_size: int = 20
 ) -> list[RelevanceResult]:
-    """Score candidates in batches; returns one RelevanceResult per scored candidate."""
-    results: list[RelevanceResult] = []
+    """Score candidates, one RelevanceResult per scored candidate.
+
+    Batches run concurrently — Codex's own semaphore bounds real parallelism, so this
+    turns N sequential subprocess calls into ~ceil(N/concurrency) wall-clock rounds.
+    """
     by_id = {p.id: p for p in candidates}
-    for i in range(0, len(candidates), batch_size):
-        batch = candidates[i : i + batch_size]
-        prompt = build_prompt(seed, batch)
-        data = await codex.run_structured(prompt, RELEVANCE_SCHEMA)
-        for item in (data or {}).get("results", []):
+    batches = [candidates[i : i + batch_size] for i in range(0, len(candidates), batch_size)]
+    log.info("scoring relevance: %d candidates in %d batch(es)", len(candidates), len(batches))
+
+    async def run_batch(batch: list[Paper]) -> list[dict]:
+        data = await codex.run_structured(build_prompt(seed, batch), RELEVANCE_SCHEMA)
+        return (data or {}).get("results", []) or []
+
+    batched = await asyncio.gather(*(run_batch(b) for b in batches))
+    results: list[RelevanceResult] = []
+    for items in batched:
+        for item in items:
             pid = item.get("paper_id")
             if pid in by_id:
                 results.append(
