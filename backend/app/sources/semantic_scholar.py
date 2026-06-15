@@ -17,6 +17,13 @@ PAPER_FIELDS = (
     "openAccessPdf"
 )
 
+# The /references and /citations endpoints reject `tldr` with a 400
+# ("Unrecognized or unsupported fields: [tldr]"), which would silently empty every
+# neighbor lookup — so those endpoints use PAPER_FIELDS minus tldr.
+NEIGHBOR_FIELDS = (
+    "title,abstract,year,venue,citationCount,fieldsOfStudy,externalIds,authors,url,openAccessPdf"
+)
+
 
 class SemanticScholar:
     name = "s2"
@@ -144,7 +151,7 @@ class SemanticScholar:
         nested = "citedPaper" if kind == "references" else "citingPaper"
         data = await self.f.get_json(
             f"{self.base}/paper/{pid}/{kind}",
-            params={"fields": PAPER_FIELDS, "limit": min(limit, 1000)},
+            params={"fields": NEIGHBOR_FIELDS, "limit": min(limit, 1000)},
             headers=self._headers, ok_404=True,
         )
         out: list[Paper] = []

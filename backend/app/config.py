@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     max_candidates_per_level: int = 200  # cap sent to Codex per level (bounds cost)
     summarize_kept: bool = True     # generate per-paper AI summaries for kept nodes
 
+    # --- Cross-linking: discover citation edges *among* the kept papers ---
+    # Without this the map is a star (only seed→paper). Cross-linking fetches the
+    # references of kept papers and connects any pair that are both in the map,
+    # revealing inter-paper structure and which works are foundational (high in-degree).
+    cross_link_enabled: bool = True
+    cross_link_max_nodes: int = 300  # cap on extra reference fetches (cost guardrail)
+
     # --- Global hard ceilings (cost / time guardrails) ---
     max_nodes: int = 600
     max_codex_calls: int = 200
