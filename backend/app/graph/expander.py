@@ -80,7 +80,10 @@ class GraphExpander:
         )
         self.visited: set[str] = set()
         self.kept_papers: dict[str, Paper] = {}   # id -> paper (all kept incl. seed)
+        self.node_level: dict[str, int] = {}      # id -> BFS level it was kept at
         self.summaries: dict[str, str] = {}
+        self.all_links: list[tuple[str, str, str]] = []  # every (parent, neighbor, dir) seen
+        self.fetched_refs: set[str] = set()       # ids whose reference list we've pulled
         self.node_count = 0
         self.notes: list[str] = []
         self.timings: dict[str, float] = {}       # cumulative seconds per phase
@@ -116,6 +119,7 @@ class GraphExpander:
         await self.db.add_job_paper(self.job_id, paper.id, level, relevance, reason)
         self.visited.add(paper.id)
         self.kept_papers[paper.id] = paper
+        self.node_level[paper.id] = level
         self.node_count += 1
 
     async def run(self) -> None:
@@ -146,6 +150,7 @@ class GraphExpander:
 
             async with self._timed("fetch", level, f"{len(frontier)} frontier paper(s)"):
                 discovered, links = await self._gather(frontier, level)
+            self.all_links.extend(links)  # keep every link for the cross-linking pass
             fresh = [p for p in discovered if p.id not in self.visited]
             if not fresh:
                 await self.emit(type="note", message=f"level {level}: no new candidates")
@@ -234,6 +239,11 @@ class GraphExpander:
             if not frontier:
                 break
 
+        # cross-link: connect papers that cite each other (turns the star into a real
+        # graph and exposes foundational works via in-degree). Pure HTTP, no Codex.
+        if self.settings.cross_link_enabled and len(self.kept_papers) > 1:
+            await self._cross_link()
+
         # final synthesis
         final_report = None
         if self.codex.remaining() > 0:
@@ -262,6 +272,7 @@ class GraphExpander:
             n_ref = n_cite = 0
             if self.params.include_references:
                 refs = await self.library.get_neighbors(parent.id, "reference", cap, parent.external_ids)
+                self.fetched_refs.add(parent.id)
                 n_ref = len(refs)
                 for r in refs:
                     raw.append(r)
@@ -279,6 +290,62 @@ class GraphExpander:
         await self.emit(type="activity", level=level, phase="fetch",
                         message=f"L{level}: collected {len(deduped)} unique neighbors")
         return deduped, links
+
+    async def _cross_link(self) -> None:
+        """Connect kept papers that cite one another.
+
+        Two passes: (1) replay every link we already fetched and keep the ones whose
+        BOTH endpoints made it into the map; (2) for kept papers whose references we
+        never pulled (the BFS leaves), fetch them now — capped — and link any that
+        point at another kept paper. Edges are deduped by directed (src, dst) pair so
+        a pair already linked (e.g. as a 'citation') isn't doubled as a 'reference'.
+        """
+        await self.emit(type="progress", phase="crosslink", nodes=self.node_count,
+                        codex_calls=self.codex.calls, elapsed_s=self._elapsed(),
+                        message="linking papers that cite each other")
+        t0 = time.monotonic()
+        existing = {(e.src, e.dst) for e in await self.db.job_edges(self.job_id)}
+
+        async def _add(src: str, dst: str, direction: str) -> bool:
+            if src == dst or (src, dst) in existing:
+                return False
+            await self.db.add_edge(self.job_id, Edge(
+                src=src, dst=dst, direction=direction, level=self.node_level.get(src, 0)))
+            existing.add((src, dst))
+            return True
+
+        added = 0
+        # (1) edges among already-fetched papers that the per-level pass skipped
+        for parent_id, neighbor_id, direction in self.all_links:
+            if parent_id in self.visited and neighbor_id in self.visited:
+                src, dst = ((parent_id, neighbor_id) if direction == "reference"
+                            else (neighbor_id, parent_id))
+                if await _add(src, dst, direction):
+                    added += 1
+
+        # (2) fetch references for kept leaves (most-cited first), capped
+        leaves = [p for pid, p in self.kept_papers.items() if pid not in self.fetched_refs]
+        leaves.sort(key=lambda p: p.citation_count or 0, reverse=True)
+        cap = self.settings.cross_link_max_nodes
+        if len(leaves) > cap:
+            self.notes.append(f"cross-link: capped reference lookups {len(leaves)}→{cap}")
+            await self.emit(type="note", message=self.notes[-1])
+            leaves = leaves[:cap]
+        for i, p in enumerate(leaves, 1):
+            if i % 20 == 0 or i == len(leaves):
+                await self.emit(type="activity", phase="crosslink",
+                                message=f"cross-linking references [{i}/{len(leaves)}]")
+            refs = await self.library.get_neighbors(
+                p.id, "reference", self.settings.prefilter_per_paper, p.external_ids)
+            for r in refs:
+                if r.id in self.visited and await _add(p.id, r.id, "reference"):
+                    added += 1
+
+        self.timings["crosslink"] = self.timings.get("crosslink", 0.0) + (time.monotonic() - t0)
+        log.info("cross-link — done in %.1fs, +%d internal edges", time.monotonic() - t0, added)
+        await self.emit(type="links_ready", edges=added, nodes=self.node_count,
+                        timings=dict(self.timings), elapsed_s=self._elapsed(),
+                        message=f"linked {added} inter-paper citations")
 
     async def _make_report(self, level: str):
         log.info("report %s — start (%d papers)", level, len(self.kept_papers))

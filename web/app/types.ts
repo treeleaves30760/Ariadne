@@ -56,6 +56,9 @@ export interface GraphNode {
   top_venue?: boolean
   reason?: string
   summary?: string | null
+  in_degree?: number           // how many kept papers cite this one (corpus centrality)
+  out_degree?: number          // how many kept papers this one cites
+  foundational?: number        // 0..1 — how foundational/canonical for this corpus
 }
 
 export interface GraphEdge {

@@ -236,6 +236,56 @@ class _AllLowCodex(FakeCodex):
         return {"results": []}
 
 
+async def test_expander_cross_link_finds_sibling_edges(db):
+    # seed→A,B at L1; A (a frontier at L2) also cites sibling B. The per-level pass
+    # skips A→B (B isn't newly kept at L2), so the cross-link pass(1) must recover it.
+    A, B = P("a", cites=10), P("b", cites=5)
+    g = {
+        ("seed", "reference"): [A, B], ("seed", "citation"): [],
+        ("a", "reference"): [B], ("a", "citation"): [],
+        ("b", "reference"): [], ("b", "citation"): [],
+    }
+
+    class Lib:
+        async def get_neighbors(self, canonical, direction, limit, ext=None):
+            return list(g.get((canonical, direction), []))
+
+    settings = Settings(max_nodes=600, per_level_k=80, relevance_threshold=0.25,
+                        max_codex_calls=200, web_search_enabled=False)
+    params = JobParams(seed_id="seed", depth=2, per_level_k=80)
+    exp = GraphExpander("job1", SEED, params, library=Lib(), codex=FakeCodex(),
+                        db=db, settings=settings)
+    await exp.run()
+    edges = {(e.src, e.dst) for e in await db.job_edges("job1")}
+    assert ("seed", "a") in edges and ("seed", "b") in edges  # tree backbone
+    assert ("a", "b") in edges                                # sibling edge recovered
+
+
+async def test_expander_cross_link_fetches_leaf_refs_with_cap(db):
+    # depth 1 → A,B are leaves whose references were never fetched during expansion.
+    # The cross-link pass(2) fetches them; cross_link_max_nodes=1 caps it to one leaf.
+    A, B = P("a", cites=10), P("b", cites=5)
+    g = {
+        ("seed", "reference"): [A, B], ("seed", "citation"): [],
+        ("a", "reference"): [B], ("b", "reference"): [A],
+    }
+
+    class Lib:
+        async def get_neighbors(self, canonical, direction, limit, ext=None):
+            return list(g.get((canonical, direction), []))
+
+    settings = Settings(max_nodes=600, per_level_k=80, relevance_threshold=0.25,
+                        max_codex_calls=200, web_search_enabled=False, cross_link_max_nodes=1)
+    params = JobParams(seed_id="seed", depth=1, per_level_k=80)
+    exp = GraphExpander("job1", SEED, params, library=Lib(), codex=FakeCodex(),
+                        db=db, settings=settings)
+    await exp.run()
+    edges = {(e.src, e.dst) for e in await db.job_edges("job1")}
+    assert ("a", "b") in edges                       # A's references fetched → A→B linked
+    assert ("b", "a") not in edges                   # B skipped by the cap
+    assert any("capped" in n for n in exp.notes)
+
+
 async def test_expander_breaks_when_nothing_kept(db):
     settings = Settings(max_nodes=600, per_level_k=80, relevance_threshold=0.25,
                         max_codex_calls=200, web_search_enabled=False)

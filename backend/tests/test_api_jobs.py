@@ -106,6 +106,18 @@ async def test_graph_has_importance(populated_db):
         assert "top_venue" in child
 
 
+async def test_graph_has_degree_and_foundational(populated_db):
+    # populated_db has the edge 10/seed → 10/a (seed references child)
+    with _client(populated_db) as client:
+        nodes = {n["id"]: n for n in client.get("/jobs/job1/graph").json()["nodes"]}
+        seed, child = nodes["10/seed"], nodes["10/a"]
+        assert child["in_degree"] == 1 and child["out_degree"] == 0
+        assert seed["out_degree"] == 1 and seed["in_degree"] == 0
+        # child is cited within the corpus → more foundational than the (uncited) seed
+        assert child["foundational"] > seed["foundational"]
+        assert 0.0 <= child["foundational"] <= 1.0
+
+
 async def test_list_jobs(populated_db):
     with _client(populated_db) as client:
         jobs = client.get("/jobs").json()

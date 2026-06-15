@@ -147,7 +147,12 @@ async def job_events(
 
 @router.get("/{job_id}/graph")
 async def job_graph(job_id: str, db: Database = Depends(get_database)):
-    from app.services.scoring import importance_score, is_top_venue, max_log_cites
+    from app.services.scoring import (
+        foundational_score,
+        importance_score,
+        is_top_venue,
+        max_log_cites,
+    )
 
     rows = await db.job_papers(job_id)
     edges = await db.job_edges(job_id)
@@ -158,6 +163,15 @@ async def job_graph(job_id: str, db: Database = Depends(get_database)):
             papers[r["paper_id"]] = p
     mlc = max_log_cites([p.citation_count for p in papers.values()])
 
+    # Graph-centrality from the (cross-linked) edges: in-degree = how many kept papers
+    # cite this one — the basis for the "foundational" ranking.
+    in_degree: dict[str, int] = {}
+    out_degree: dict[str, int] = {}
+    for e in edges:
+        out_degree[e.src] = out_degree.get(e.src, 0) + 1
+        in_degree[e.dst] = in_degree.get(e.dst, 0) + 1
+    max_in = max(in_degree.values(), default=0)
+
     nodes = []
     for r in rows:
         p = papers.get(r["paper_id"])
@@ -165,6 +179,7 @@ async def job_graph(job_id: str, db: Database = Depends(get_database)):
             continue
         summary = await db.get_summary(job_id, r["paper_id"])
         top = is_top_venue(p.venue)
+        indeg = in_degree.get(p.id, 0)
         nodes.append({
             "id": p.id,
             "title": p.title,
@@ -174,6 +189,9 @@ async def job_graph(job_id: str, db: Database = Depends(get_database)):
             "citation_count": p.citation_count,
             "top_venue": top,
             "importance": importance_score(r["relevance"], p.citation_count, top, mlc),
+            "in_degree": indeg,
+            "out_degree": out_degree.get(p.id, 0),
+            "foundational": foundational_score(indeg, max_in, p.citation_count, mlc, top),
             "url": p.url,
             "pdf_url": p.pdf_url,
             "external_ids": p.external_ids.model_dump(),

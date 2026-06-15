@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from app.services.scoring import importance_score, is_top_venue, max_log_cites
+from app.services.scoring import (
+    foundational_score,
+    importance_score,
+    is_top_venue,
+    max_log_cites,
+)
 
 
 def test_is_top_venue():
@@ -26,3 +31,16 @@ def test_importance_top_venue_bonus():
     with_venue = importance_score(0.5, 10, True, mlc)
     without = importance_score(0.5, 10, False, mlc)
     assert with_venue > without
+
+
+def test_foundational_score_dominated_by_in_degree():
+    mlc = max_log_cites([100, 50, 5])
+    hub = foundational_score(10, 10, 50, mlc, False)     # cited by every other paper
+    leaf = foundational_score(0, 10, 50, mlc, False)     # same cites, cited by none here
+    assert hub > leaf
+    assert 0.0 <= leaf < hub <= 1.0
+
+
+def test_foundational_score_handles_empty_graph():
+    # no edges yet (max_in_degree == 0) and no citations → score 0, no divide-by-zero
+    assert foundational_score(0, 0, None, 0.0, False) == 0.0

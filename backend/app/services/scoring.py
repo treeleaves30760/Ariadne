@@ -62,3 +62,25 @@ def importance_score(
 def max_log_cites(citation_counts: list[int | None]) -> float:
     vals = [math.log1p(c or 0) for c in citation_counts]
     return max(vals) if vals else 0.0
+
+
+def foundational_score(
+    in_degree: int,
+    max_in_degree: int,
+    citation_count: int | None,
+    max_log_cites: float,
+    top_venue: bool,
+) -> float:
+    """How foundational/canonical a paper is *for this corpus* (0..1).
+
+    Dominated by in-corpus in-degree — how many of the collected papers cite it —
+    which is a strong proxy for "widely-relied-on baseline", then global citation
+    impact and a top-venue bonus. Lets the UI surface prerequisites that may be more
+    essential than the user's seed, which can itself score low if it's niche/recent.
+    """
+    indeg_norm = (in_degree / max_in_degree) if max_in_degree > 0 else 0.0
+    log_c = math.log1p(citation_count or 0)
+    cites_norm = (log_c / max_log_cites) if max_log_cites > 0 else 0.0
+    venue_bonus = 1.0 if top_venue else 0.0
+    score = 0.55 * indeg_norm + 0.33 * cites_norm + 0.12 * venue_bonus
+    return round(min(1.0, max(0.0, score)), 3)
