@@ -16,8 +16,8 @@ OA = "https://api.openalex.org"
 
 
 def _settings() -> Settings:
-    return Settings(openalex_email="t@e.com", s2_min_interval_s=0,
-                    openalex_min_interval_s=0, http_max_retries=1)
+    return Settings(openalex_email="t@e.com", semantic_scholar_api_key="k",
+                    s2_min_interval_s=0, openalex_min_interval_s=0, http_max_retries=1)
 
 
 async def _oa():
@@ -140,9 +140,12 @@ def test_s2_to_paper_edge_cases():
 
 def test_s2_path_id_branches():
     assert SemanticScholar._path_id("x", ExternalIds(s2="abc")) == "abc"
+    # arXiv id wins over an unaddressable canonical / DataCite DOI (S2 400s on the latter)
+    assert SemanticScholar._path_id("oa:W1", ExternalIds(arxiv="2601.14724")) == "ARXIV:2601.14724"
     assert SemanticScholar._path_id("s2:abc") == "abc"
     assert SemanticScholar._path_id("arxiv:1706.03762") == "ARXIV:1706.03762"
     assert SemanticScholar._path_id("oa:W1") == ""
+    assert SemanticScholar._path_id("oa:W1", ExternalIds(doi="10/x")) == "DOI:10/x"  # oa: + DOI
     assert SemanticScholar._path_id("10/doi") == "DOI:10/doi"
 
 
@@ -154,6 +157,35 @@ async def test_s2_search():
     try:
         cands = await s2.search("a", limit=5)
         assert cands[0].title == "A" and cands[0].source == "s2"
+    finally:
+        await client.aclose()
+        await db.close()
+
+
+@respx.mock
+async def test_s2_batch_lookup():
+    db, client, s2 = await _s2()
+    respx.post(f"{S2}/paper/batch").mock(return_value=httpx.Response(200, json=[
+        {"paperId": "p1", "citationCount": 12}, None]))
+    try:
+        assert await s2.batch_lookup([]) == []                    # empty ids -> no request
+        res = await s2.batch_lookup(["ARXIV:1", "ARXIV:2"])
+        assert res[0]["citationCount"] == 12 and res[1] is None
+    finally:
+        await client.aclose()
+        await db.close()
+
+
+async def test_s2_search_skipped_without_key():
+    # Keyless S2 search short-circuits to [] with no network call.
+    db = await Database.connect(":memory:")
+    client = httpx.AsyncClient()
+    s2 = SemanticScholar.build(
+        client, Settings(s2_min_interval_s=0, http_max_retries=1), db
+    )
+    try:
+        assert s2._headers is None
+        assert await s2.search("anything") == []
     finally:
         await client.aclose()
         await db.close()

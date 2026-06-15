@@ -77,16 +77,24 @@ class SemanticScholar:
         """Turn a canonical id (or externalIds) into an S2 path identifier."""
         if ext and ext.s2:
             return ext.s2
+        if ext and ext.arxiv:
+            # arXiv papers: S2 accepts ARXIV:<id> but 400s on the arXiv DataCite DOI,
+            # so prefer the arXiv id whenever we have it (works even for an oa:/DOI canonical).
+            return f"ARXIV:{norm_arxiv(ext.arxiv)}"
         if canonical.startswith("s2:"):
             return canonical[3:]
         if canonical.startswith("arxiv:"):
             return f"ARXIV:{canonical[6:]}"
         if canonical.startswith("oa:"):
-            return ""  # not addressable in S2
+            return f"DOI:{ext.doi}" if ext and ext.doi else ""  # oa: itself isn't addressable
         return f"DOI:{canonical}"  # canonical was a bare DOI
 
     # ------------------------------- API --------------------------------- #
     async def search(self, query: str, limit: int = 10) -> list[Candidate]:
+        # The keyless public search pool is rate-limited to ~always 429; skip it so
+        # it adds neither latency nor noise. OpenAlex + arXiv cover keyless search.
+        if self._headers is None:
+            return []
         data = await self.f.get_json(
             f"{self.base}/paper/search",
             params={"query": query, "limit": limit, "fields": PAPER_FIELDS},
@@ -99,6 +107,24 @@ class SemanticScholar:
             if p:
                 out.append(_paper_to_candidate(p))
         return out
+
+    async def batch_lookup(self, ids: list[str]) -> list[dict[str, Any] | None]:
+        """One POST /paper/batch for many ids; results are positionally aligned with `ids`.
+
+        Works even without an API key (unlike the search endpoint), so it's used to
+        backfill citation counts that OpenAlex/arXiv report as 0/None for recent papers.
+        Each id is an S2 path form (a raw paperId, ``ARXIV:<id>`` or ``DOI:<doi>``).
+        """
+        if not ids:
+            return []
+        data = await self.f.post_json(
+            f"{self.base}/paper/batch",
+            {"ids": ids},
+            params={"fields": "citationCount,paperId"},
+            headers=self._headers,
+            max_retries=2,
+        )
+        return data or []
 
     async def get_paper(self, canonical: str, ext: ExternalIds | None = None) -> Paper | None:
         pid = self._path_id(canonical, ext)

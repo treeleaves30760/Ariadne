@@ -25,7 +25,47 @@ def norm_openalex(oa: str | None) -> str | None:
 def norm_arxiv(ax: str | None) -> str | None:
     if not ax:
         return None
-    return re.sub(r"^arxiv:", "", ax.strip(), flags=re.I) or None
+    s = ax.strip()
+    s = re.sub(r"^https?://arxiv\.org/(?:abs|pdf)/", "", s, flags=re.I)  # URL form
+    s = re.sub(r"^arxiv:", "", s, flags=re.I)                            # "arXiv:" prefix
+    s = re.sub(r"v\d+$", "", s)                                          # drop version suffix
+    return s or None
+
+
+def arxiv_from_doi(doi: str | None) -> str | None:
+    """Recover an arXiv id from its standard DataCite DOI (10.48550/arXiv.<id>)."""
+    if not doi:
+        return None
+    m = re.fullmatch(r"10\.48550/arxiv\.(.+)", doi.strip(), flags=re.I)
+    return norm_arxiv(m.group(1)) if m else None
+
+
+_ARXIV_NEW = r"\d{4}\.\d{4,5}"  # modern arXiv id, e.g. 2601.14724
+
+
+def detect_identifier(query: str) -> tuple[str, str] | None:
+    """Classify a resolve query that is itself an identifier.
+
+    Returns ``("arxiv", id)`` for an arXiv id / URL, ``("doi", doi)`` for a DOI,
+    or ``None`` for a free-text (title / keyword) query. An arXiv DataCite DOI is
+    reported as an arXiv id so it routes to the authoritative source.
+    """
+    q = query.strip()
+    if not q:
+        return None
+    low = q.lower()
+    m = re.search(r"arxiv\.org/(?:abs|pdf)/(" + _ARXIV_NEW + r")(?:v\d+)?", low)
+    if m:
+        return ("arxiv", m.group(1))
+    m = re.fullmatch(r"(?:arxiv:\s*)?(" + _ARXIV_NEW + r")(?:v\d+)?", low)
+    if m:
+        return ("arxiv", m.group(1))
+    m = re.search(r"(10\.\d{4,9}/\S+)", low)
+    if m:
+        doi = norm_doi(m.group(1))
+        ax = arxiv_from_doi(doi)
+        return ("arxiv", ax) if ax else ("doi", doi)
+    return None
 
 
 def canonical_id(ext: ExternalIds) -> str:
