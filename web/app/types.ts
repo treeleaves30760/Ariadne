@@ -56,6 +56,8 @@ export interface GraphNode {
   top_venue?: boolean
   reason?: string
   summary?: string | null
+  cluster?: string | null      // primary dimension id (AI faceting)
+  tags?: string[]              // secondary dimension ids
   in_degree?: number           // how many kept papers cite this one (corpus centrality)
   out_degree?: number          // how many kept papers this one cites
   foundational?: number        // 0..1 — how foundational/canonical for this corpus
@@ -68,9 +70,19 @@ export interface GraphEdge {
   level: number
 }
 
+/** One AI-assigned topical facet the corpus is organized into. */
+export interface Dimension {
+  id: string
+  label: string
+  description: string
+  color: string
+  paper_ids: string[]
+}
+
 export interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  clusters?: Dimension[]
 }
 
 export interface ReportCluster {

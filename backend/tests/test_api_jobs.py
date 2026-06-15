@@ -59,6 +59,31 @@ async def test_graph_endpoint(populated_db):
         assert data["edges"][0]["direction"] == "reference"
 
 
+async def test_clusters_on_graph_and_dedicated_endpoint(populated_db):
+    from app.models import Clustering, Dimension, PaperFacet
+
+    await populated_db.upsert_clustering("job1", Clustering(
+        dimensions=[Dimension(id="m", label="Methods", color="#6ea8fe", paper_ids=["10/a"])],
+        facets=[PaperFacet(paper_id="10/a", primary="m", tags=[])],
+    ))
+    with _client(populated_db) as client:
+        g = client.get("/jobs/job1/graph").json()
+        assert g["clusters"][0]["id"] == "m"
+        child = next(n for n in g["nodes"] if n["id"] == "10/a")
+        assert child["cluster"] == "m" and child["tags"] == []
+        cl = client.get("/jobs/job1/clusters").json()
+        assert cl["dimensions"][0]["label"] == "Methods"
+
+
+async def test_clusters_absent_returns_404_and_empty_graph_clusters(populated_db):
+    with _client(populated_db) as client:
+        assert client.get("/jobs/job1/clusters").status_code == 404
+        g = client.get("/jobs/job1/graph").json()
+        assert g["clusters"] == []
+        child = next(n for n in g["nodes"] if n["id"] == "10/a")
+        assert child["cluster"] is None and child["tags"] == []
+
+
 async def test_reports_endpoints(populated_db):
     with _client(populated_db) as client:
         assert client.get("/jobs/job1/reports").json()["levels"] == ["final"]
